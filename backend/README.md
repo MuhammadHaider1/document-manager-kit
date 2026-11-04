@@ -1,8 +1,8 @@
-# DocuFlow
+# RAG Document Manager — Backend
 
 **Multi-tenant document management backend with built-in RAG** — upload a PDF, DOCX or text file, and ask questions about it in natural language. Answers are grounded in your own tenant's documents and streamed back token by token.
 
-![CI](https://github.com/MuhammadHaider1/docuflow/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/MuhammadHaider1/rag-document-manager/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -320,8 +320,8 @@ backend/
 **Prerequisites:** Python 3.12+, Docker & Docker Compose.
 
 ```bash
-git clone https://github.com/MuhammadHaider1/docuflow.git
-cd docuflow/backend
+git clone https://github.com/MuhammadHaider1/rag-document-manager.git
+cd rag-document-manager/backend
 
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt

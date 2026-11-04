@@ -1,6 +1,6 @@
-# Docuflow Web
+# RAG Document Manager — Web
 
-The React frontend for [Docuflow](../backend/README.md) — a multi-tenant legal
+The React frontend for [RAG Document Manager](../backend/README.md) — a multi-tenant legal
 document workspace with versioned files, folder trees, comments, an audit trail
 and an organization-scoped Ask AI (RAG) experience.
 
