@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0B1F3A" />
+    <meta
+      name="description"
+      content="Docuflow is the document workflow and AI search workspace for law firms and in-house legal teams."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Docuflow — Legal document intelligence</title>
+    <script>
+      // Apply the saved theme before paint so there is no flash of the wrong theme.
+      try {
+        var stored = JSON.parse(localStorage.getItem('docuflow-ui') || '{}')
+        var theme = stored.state && stored.state.theme
+        var dark =
+          theme === 'dark' ||
+          (theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.classList.add('dark')
+      } catch (e) {
+        /* ignore malformed storage */
+      }
+    </script>
+  </head>
+  <body class="h-full">
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

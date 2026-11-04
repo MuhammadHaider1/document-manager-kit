@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend — lint & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-py312-pip-${{ hashFiles('backend/requirements*.txt') }}
+          restore-keys: ${{ runner.os }}-py312-pip-
+
+      - name: Install lint tooling
+        run: pip install ruff==0.15.21
+
+      - name: Ruff check
+        run: ruff check src/ tests/
+
+      - name: Ruff format
+        run: ruff format --check src/ tests/
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          SECRET_KEY: ci-dummy-secret-key-not-used-for-any-real-signing
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: docuflow_ci
+          MINIO_ENDPOINT: localhost:9100
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_BUCKET_NAME: docuflow-ci
+          MINIO_SECURE: "False"
+        run: pytest -q
+
+  frontend:
+    name: Frontend — format, lint, tests & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prettier check
+        run: npm run format:check
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if a .env was ever committed
+        run: |
+          if git log --all --diff-filter=A --name-only --pretty=format: \
+               | grep -qE '(^|/)\.env$'; then
+            echo "::error::A .env file was committed to this repository."
+            exit 1
+          fi
+          echo "No .env in history. Good."
+
+      - name: Fail on common secret patterns in the current tree
+        run: |
+          if git grep -nIE \
+              '(sk-or-v1-[0-9a-zA-Z_-]{20,}|sk-[0-9a-zA-Z]{32,}|AIza[0-9A-Za-z_-]{35}|hf_[0-9A-Za-z]{30,}|ghp_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{20,}|AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY)' \
+              -- . ':!*.example' ':!.github/workflows/*'; then
+            echo "::error::Possible committed secret found."
+            exit 1
+          fi
+          echo "No secret patterns in tree. Good."

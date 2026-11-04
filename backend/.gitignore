@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables (SENSITIVE)
+.env
+.env.*
+!.env.example
+
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Database & Storage
+*.sqlite3
+*.db
+uploads/
+media/
+
+# Locally cached model weights (see EMBEDDING_MODEL_PATH)
+/models/
+
+# Logs
+*.log
+logs/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/

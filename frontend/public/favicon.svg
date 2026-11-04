@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Docuflow">
+  <rect width="64" height="64" rx="14" fill="#0B1F3A" />
+  <path d="M20 14h17l9 9v27H20z" fill="none" stroke="#FAF8F4" stroke-width="2.5" stroke-linejoin="round" />
+  <path d="M37 14v9h9" fill="none" stroke="#FAF8F4" stroke-width="2.5" stroke-linejoin="round" />
+  <path d="M27 34h13M27 41h9" stroke="#B08D57" stroke-width="2.5" stroke-linecap="round" />
+</svg>

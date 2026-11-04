@@ -1,0 +1,241 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 38% 97%;
+    --foreground: 214 60% 13%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 214 60% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 214 60% 13%;
+
+    --primary: 214 68% 14%;
+    --primary-foreground: 40 38% 97%;
+    --secondary: 40 22% 93%;
+    --secondary-foreground: 214 45% 20%;
+    --muted: 40 22% 94%;
+    --muted-foreground: 215 14% 38%;
+
+    --accent: 33 40% 36%;
+    --accent-foreground: 40 40% 98%;
+    --accent-soft: 38 42% 92%;
+
+    --destructive: 0 62% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-soft: 0 60% 96%;
+    --success: 152 48% 28%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: 150 40% 94%;
+    --warning: 30 80% 34%;
+    --warning-foreground: 0 0% 100%;
+    --warning-soft: 36 80% 94%;
+    --info: 210 55% 38%;
+    --info-foreground: 0 0% 100%;
+    --info-soft: 210 50% 95%;
+
+    --border: 40 17% 86%;
+    --input: 40 17% 84%;
+    --ring: 33 45% 40%;
+    --sidebar: 40 32% 95%;
+
+    --radius: 0.875rem;
+    --shadow-card: 0 1px 2px hsl(214 60% 13% / 0.04), 0 12px 32px -18px hsl(214 60% 13% / 0.18);
+    --shadow-raised: 0 2px 4px hsl(214 60% 13% / 0.05), 0 24px 56px -24px hsl(214 60% 13% / 0.28);
+  }
+
+  .dark {
+    --background: 213 45% 7%;
+    --foreground: 40 33% 94%;
+
+    --card: 213 38% 10%;
+    --card-foreground: 40 33% 94%;
+    --popover: 213 38% 11%;
+    --popover-foreground: 40 33% 94%;
+
+    --primary: 40 33% 94%;
+    --primary-foreground: 214 55% 11%;
+    --secondary: 213 30% 15%;
+    --secondary-foreground: 40 30% 92%;
+    --muted: 213 28% 15%;
+    --muted-foreground: 215 16% 68%;
+
+    --accent: 36 48% 62%;
+    --accent-foreground: 214 55% 11%;
+    --accent-soft: 35 30% 18%;
+
+    --destructive: 0 58% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-soft: 0 35% 16%;
+    --success: 152 42% 58%;
+    --success-foreground: 213 45% 8%;
+    --success-soft: 152 30% 15%;
+    --warning: 36 70% 60%;
+    --warning-foreground: 213 45% 8%;
+    --warning-soft: 36 35% 16%;
+    --info: 210 60% 66%;
+    --info-foreground: 213 45% 8%;
+    --info-soft: 210 35% 16%;
+
+    --border: 213 24% 19%;
+    --input: 213 24% 22%;
+    --ring: 36 45% 60%;
+    --sidebar: 213 42% 8%;
+
+    --shadow-card: 0 1px 0 hsl(0 0% 100% / 0.03), 0 16px 40px -24px hsl(0 0% 0% / 0.7);
+    --shadow-raised: 0 1px 0 hsl(0 0% 100% / 0.04), 0 32px 64px -28px hsl(0 0% 0% / 0.8);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'cv02' 1,
+      'cv03' 1,
+      'cv04' 1,
+      'ss01' 1;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: hsl(var(--accent) / 0.22);
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display font-medium tracking-tight text-foreground;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Thin, unobtrusive scrollbars that respect the theme. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  .hairline {
+    @apply border border-border/80;
+  }
+
+  .surface {
+    @apply rounded-xl border border-border/80 bg-card shadow-card;
+  }
+
+  .label-caps {
+    @apply text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-muted;
+  }
+
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-foreground/5 to-transparent;
+  }
+
+  .prose-legal {
+    @apply max-w-none text-[0.95rem] leading-7 text-foreground/90;
+  }
+
+  .prose-legal p {
+    @apply my-3;
+  }
+
+  .prose-legal ul {
+    @apply my-3 list-disc space-y-1 pl-5;
+  }
+
+  .prose-legal ol {
+    @apply my-3 list-decimal space-y-1 pl-5;
+  }
+
+  .prose-legal h1,
+  .prose-legal h2,
+  .prose-legal h3 {
+    @apply mt-5 mb-2 font-display text-lg;
+  }
+
+  .prose-legal strong {
+    @apply font-semibold text-foreground;
+  }
+
+  .prose-legal code {
+    @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em];
+  }
+
+  .prose-legal blockquote {
+    @apply border-l-2 border-accent/50 pl-4 italic text-muted-foreground;
+  }
+
+  .prose-legal a {
+    @apply text-accent underline underline-offset-4;
+  }
+
+  .prose-legal table {
+    @apply my-4 w-full border-collapse text-sm;
+  }
+
+  .prose-legal th,
+  .prose-legal td {
+    @apply border border-border px-3 py-2 text-left;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
