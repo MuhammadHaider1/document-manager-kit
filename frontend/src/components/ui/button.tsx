@@ -5,18 +5,22 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors duration-150 disabled:pointer-events-none disabled:opacity-55 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 select-none',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-[transform,background-color,border-color,color,box-shadow] duration-200 ease-out-soft active:scale-[0.985] disabled:pointer-events-none disabled:opacity-55 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 select-none',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm',
-        accent: 'bg-accent text-accent-foreground hover:bg-accent/90 shadow-sm',
-        secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/75',
+        default:
+          'bg-primary text-primary-foreground hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md active:translate-y-0 shadow-sm',
+        accent:
+          'bg-accent text-accent-foreground hover:-translate-y-0.5 hover:bg-accent/90 hover:shadow-md active:translate-y-0 shadow-sm',
+        secondary:
+          'bg-secondary text-secondary-foreground hover:-translate-y-0.5 hover:bg-secondary/75 active:translate-y-0',
         outline:
-          'border border-border bg-transparent text-foreground hover:bg-muted/70 hover:border-border',
+          'border border-border bg-transparent text-foreground hover:-translate-y-0.5 hover:border-border hover:bg-muted/70 active:translate-y-0',
         ghost: 'text-foreground hover:bg-muted/70',
         subtle: 'bg-muted text-foreground hover:bg-muted/70',
-        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+        destructive:
+          'bg-destructive text-destructive-foreground hover:-translate-y-0.5 hover:bg-destructive/90 hover:shadow-md active:translate-y-0',
         link: 'text-accent underline-offset-4 hover:underline p-0 h-auto',
       },
       size: {
