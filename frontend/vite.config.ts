@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+  // GitHub Pages serves project sites from a subpath. Local builds keep the
+  // root path so `npm run dev` and `npm run preview` are unchanged.
+  base: process.env.GITHUB_PAGES === 'true' ? '/rag-document-manager/' : '/',
   plugins: [react()],
   resolve: {
     alias: {
