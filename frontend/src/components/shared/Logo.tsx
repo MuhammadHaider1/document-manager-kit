@@ -20,7 +20,7 @@ export function Logo({
       )}
       aria-label={`${APP_NAME} home`}
     >
-      <span className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform duration-300 ease-out-soft group-hover:-rotate-3 group-hover:scale-105 dark:bg-primary/90">
+      <span className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm dark:bg-primary/90">
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
           <path
             d="M6 3.5h8l4 4v13H6z"

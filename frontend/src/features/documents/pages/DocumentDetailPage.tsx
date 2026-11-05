@@ -15,8 +15,7 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { MotionCard } from '@/components/motion/MotionCard'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -236,13 +235,16 @@ export function DocumentDetailPage() {
           { label: 'Versions', value: String(versions.length) },
           { label: 'Uploaded', value: formatDateTime(document.created_at) },
           { label: 'Last updated', value: formatDateTime(document.updated_at) },
-        ].map((item, index) => (
-          <MotionCard key={item.label} delay={0.04 + index * 0.05} className="px-4 py-3">
+        ].map((item) => (
+          <div
+            key={item.label}
+            className="rounded-xl border border-border/80 bg-card px-4 py-3 shadow-card"
+          >
             <p className="label-caps">{item.label}</p>
             <p className="mt-1.5 truncate text-sm font-medium" title={item.value}>
               {item.value}
             </p>
-          </MotionCard>
+          </div>
         ))}
       </div>
 
@@ -278,7 +280,7 @@ export function DocumentDetailPage() {
 
         <TabsContent value="overview">
           <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
-            <MotionCard interactive={false} delay={0.08}>
+            <Card>
               <CardHeader>
                 <CardTitle>Document record</CardTitle>
               </CardHeader>
@@ -313,10 +315,10 @@ export function DocumentDetailPage() {
                   </MetadataRow>
                 </dl>
               </CardContent>
-            </MotionCard>
+            </Card>
 
             <div className="space-y-5">
-              <MotionCard interactive={false} delay={0.12}>
+              <Card>
                 <CardHeader>
                   <CardTitle>Latest version</CardTitle>
                 </CardHeader>
@@ -357,9 +359,9 @@ export function DocumentDetailPage() {
                     </p>
                   )}
                 </CardContent>
-              </MotionCard>
+              </Card>
 
-              <MotionCard interactive={false} delay={0.16}>
+              <Card>
                 <CardHeader>
                   <CardTitle>Version history</CardTitle>
                 </CardHeader>
@@ -388,7 +390,7 @@ export function DocumentDetailPage() {
                     View all {versions.length} versions
                   </Button>
                 </CardContent>
-              </MotionCard>
+              </Card>
             </div>
           </div>
         </TabsContent>
@@ -431,7 +433,7 @@ export function DocumentDetailPage() {
                 {versions.map((entry, index) => (
                   <li
                     key={entry.id}
-                    className="flex flex-col gap-3 rounded-xl border border-border/80 bg-card p-4 shadow-card transition-[border-color,box-shadow,transform] duration-300 ease-out-soft hover:-translate-y-0.5 hover:border-accent/35 hover:shadow-raised sm:flex-row sm:items-center"
+                    className="flex flex-col gap-3 rounded-xl border border-border/80 bg-card p-4 shadow-card sm:flex-row sm:items-center"
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary dark:text-foreground">
                       v{entry.version_number}

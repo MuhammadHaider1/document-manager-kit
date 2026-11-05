@@ -1,5 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { motion, useReducedMotion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -7,8 +6,6 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Field } from '@/components/shared/Field'
 import { Input } from '@/components/ui/input'
-import { EASE, Stagger, StaggerItem } from '@/components/motion/Reveal'
-import { TextReveal } from '@/components/motion/TextReveal'
 import { ApiError } from '@/lib/api/errors'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useAuthStore } from '@/store/auth'
@@ -22,7 +19,6 @@ interface LocationState {
 
 export function RegisterPage() {
   useDocumentTitle('Create an account')
-  const reduce = useReducedMotion()
   const navigate = useNavigate()
   const location = useLocation()
   const registerUser = useAuthStore((state) => state.register)
@@ -74,124 +70,87 @@ export function RegisterPage() {
 
   return (
     <div className="space-y-8">
-      <motion.div
-        className="space-y-2"
-        initial={reduce ? false : { opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.55, ease: EASE }}
-      >
+      <div className="space-y-2">
         <p className="label-caps">Get started</p>
         <h1 className="font-display text-[2rem] leading-tight tracking-tight">
-          <TextReveal text="Create your firm's workspace" inView={false} />
+          Create your firm&apos;s workspace
         </h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Free to start. Upload your first agreement in minutes — no card required.
         </p>
-      </motion.div>
+      </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} noValidate>
-        <Stagger className="space-y-5" stagger={0.06} inView={false}>
-          <StaggerItem>
-            <Field label="Full name" htmlFor="fullName" error={errors.fullName?.message} required>
-              <Input
-                id="fullName"
-                autoComplete="name"
-                placeholder="Alex Morgan"
-                aria-invalid={Boolean(errors.fullName)}
-                {...register('fullName')}
-              />
-            </Field>
-          </StaggerItem>
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
+        <Field label="Full name" htmlFor="fullName" error={errors.fullName?.message} required>
+          <Input
+            id="fullName"
+            autoComplete="name"
+            placeholder="Alex Morgan"
+            aria-invalid={Boolean(errors.fullName)}
+            {...register('fullName')}
+          />
+        </Field>
 
-          <StaggerItem>
-            <Field label="Work email" htmlFor="email" error={errors.email?.message} required>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@firm.com"
-                aria-invalid={Boolean(errors.email)}
-                {...register('email')}
-              />
-            </Field>
-          </StaggerItem>
+        <Field label="Work email" htmlFor="email" error={errors.email?.message} required>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@firm.com"
+            aria-invalid={Boolean(errors.email)}
+            {...register('email')}
+          />
+        </Field>
 
-          <StaggerItem>
-            <Field
-              label="Password"
-              htmlFor="password"
-              error={errors.password?.message}
-              hint="8+ characters"
-              required
-            >
-              <PasswordInput
-                id="password"
-                autoComplete="new-password"
-                placeholder="Create a password"
-                aria-invalid={Boolean(errors.password)}
-                {...register('password')}
-              />
-              <PasswordStrength password={password} />
-            </Field>
-          </StaggerItem>
+        <Field
+          label="Password"
+          htmlFor="password"
+          error={errors.password?.message}
+          hint="8+ characters"
+          required
+        >
+          <PasswordInput
+            id="password"
+            autoComplete="new-password"
+            placeholder="Create a password"
+            aria-invalid={Boolean(errors.password)}
+            {...register('password')}
+          />
+          <PasswordStrength password={password} />
+        </Field>
 
-          <StaggerItem>
-            <Field
-              label="Confirm password"
-              htmlFor="confirmPassword"
-              error={errors.confirmPassword?.message}
-              required
-            >
-              <PasswordInput
-                id="confirmPassword"
-                autoComplete="new-password"
-                placeholder="Repeat your password"
-                aria-invalid={Boolean(errors.confirmPassword)}
-                {...register('confirmPassword')}
-              />
-            </Field>
-          </StaggerItem>
+        <Field
+          label="Confirm password"
+          htmlFor="confirmPassword"
+          error={errors.confirmPassword?.message}
+          required
+        >
+          <PasswordInput
+            id="confirmPassword"
+            autoComplete="new-password"
+            placeholder="Repeat your password"
+            aria-invalid={Boolean(errors.confirmPassword)}
+            {...register('confirmPassword')}
+          />
+        </Field>
 
-          <StaggerItem>
-            <motion.div
-              whileHover={reduce ? undefined : { y: -2 }}
-              whileTap={reduce ? undefined : { scale: 0.99 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 24 }}
-            >
-              <Button
-                type="submit"
-                variant="accent"
-                size="lg"
-                className="w-full"
-                loading={isSubmitting}
-              >
-                Create account
-                {!isSubmitting && <ArrowRight />}
-              </Button>
-            </motion.div>
-          </StaggerItem>
+        <Button type="submit" variant="accent" size="lg" className="w-full" loading={isSubmitting}>
+          Create account
+          {!isSubmitting && <ArrowRight />}
+        </Button>
 
-          <StaggerItem>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              By creating an account you agree to your firm&apos;s data-handling policy and to
-              Docuflow&apos;s acceptable use terms. Documents remain the property of your
-              organization.
-            </p>
-          </StaggerItem>
-        </Stagger>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          By creating an account you agree to your firm&apos;s data-handling policy and to
+          Docuflow&apos;s acceptable use terms. Documents remain the property of your organization.
+        </p>
       </form>
 
-      <motion.p
-        className="text-sm text-muted-foreground"
-        initial={reduce ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.4 }}
-      >
+      <p className="text-sm text-muted-foreground">
         Already have an account?{' '}
         <Link to="/login" className="font-medium text-accent underline-offset-4 hover:underline">
           Sign in
         </Link>
-      </motion.p>
+      </p>
     </div>
   )
 }

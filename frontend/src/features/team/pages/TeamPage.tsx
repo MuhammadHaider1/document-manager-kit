@@ -16,8 +16,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { MotionCard } from '@/components/motion/MotionCard'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -224,7 +223,7 @@ export function TeamPage() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
         <div className="space-y-5">
-          <MotionCard interactive={false} delay={0.04}>
+          <Card>
             <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
                 <CardTitle className="flex items-center gap-2">
@@ -274,7 +273,7 @@ export function TeamPage() {
                     return (
                       <li
                         key={member.membership_id}
-                        className="flex flex-col gap-3 px-3.5 py-3.5 transition-colors first:rounded-t-lg last:rounded-b-lg hover:bg-muted/40 sm:flex-row sm:items-center"
+                        className="flex flex-col gap-3 px-3.5 py-3.5 sm:flex-row sm:items-center"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
                           <UserAvatar
@@ -355,10 +354,10 @@ export function TeamPage() {
                 </div>
               )}
             </CardContent>
-          </MotionCard>
+          </Card>
 
           {canInvite && (
-            <MotionCard interactive={false} delay={0.1}>
+            <Card>
               <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
                 <div className="space-y-1">
                   <CardTitle className="flex items-center gap-2">
@@ -392,7 +391,7 @@ export function TeamPage() {
                     {invitations.map((invitation) => (
                       <li
                         key={invitation.id}
-                        className="flex flex-col gap-3 px-3.5 py-3.5 transition-colors first:rounded-t-lg last:rounded-b-lg hover:bg-muted/40 sm:flex-row sm:items-center"
+                        className="flex flex-col gap-3 px-3.5 py-3.5 sm:flex-row sm:items-center"
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{invitation.email}</p>
@@ -429,12 +428,12 @@ export function TeamPage() {
                   </ul>
                 )}
               </CardContent>
-            </MotionCard>
+            </Card>
           )}
         </div>
 
         <div className="space-y-5">
-          <MotionCard interactive={false} delay={0.08}>
+          <Card>
             <CardHeader>
               <CardTitle>Your membership</CardTitle>
               <p className="text-xs text-muted-foreground">In {activeOrganization?.name}.</p>
@@ -486,9 +485,9 @@ export function TeamPage() {
                 </p>
               )}
             </CardContent>
-          </MotionCard>
+          </Card>
 
-          <MotionCard interactive={false} delay={0.14}>
+          <Card>
             <CardContent className="p-5 sm:p-6">
               <Tabs defaultValue="roles">
                 <TabsList className="w-full justify-start">
@@ -597,7 +596,7 @@ export function TeamPage() {
                 </TabsContent>
               </Tabs>
             </CardContent>
-          </MotionCard>
+          </Card>
         </div>
       </div>
 

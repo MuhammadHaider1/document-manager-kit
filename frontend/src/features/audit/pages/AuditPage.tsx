@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Download, RefreshCw, ScrollText, ShieldCheck } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { MotionCard } from '@/components/motion/MotionCard'
 import {
   Select,
   SelectContent,
@@ -204,7 +203,7 @@ export function AuditPage() {
         </p>
       </div>
 
-      <MotionCard interactive={false} className="overflow-hidden">
+      <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-card">
         {auditQuery.isLoading ? (
           <div className="space-y-3 p-5">
             {[0, 1, 2, 3, 4, 5].map((index) => (
@@ -384,7 +383,7 @@ export function AuditPage() {
             )}
           </>
         )}
-      </MotionCard>
+      </div>
 
       <nav
         aria-label="Audit pagination"

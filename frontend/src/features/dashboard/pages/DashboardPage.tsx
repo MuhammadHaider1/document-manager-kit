@@ -15,8 +15,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { MotionCard } from '@/components/motion/MotionCard'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -52,7 +51,6 @@ function StatCard({
   icon: Icon,
   tone = 'default',
   loading,
-  delay = 0,
 }: {
   label: string
   value: number | string
@@ -60,7 +58,6 @@ function StatCard({
   icon: typeof FileStack
   tone?: 'default' | 'success' | 'warning' | 'danger'
   loading?: boolean
-  delay?: number
 }) {
   const toneClass =
     tone === 'success'
@@ -72,7 +69,7 @@ function StatCard({
           : 'bg-primary/10 text-primary dark:text-foreground'
 
   return (
-    <MotionCard delay={delay} className="h-full p-4 sm:p-5">
+    <div className="rounded-xl border border-border/80 bg-card p-4 shadow-card sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <p className="label-caps">{label}</p>
         <span
@@ -87,7 +84,7 @@ function StatCard({
         <p className="mt-2 font-display text-[1.75rem] leading-none tracking-tight">{value}</p>
       )}
       <p className="mt-2 text-2xs leading-relaxed text-muted-foreground">{hint}</p>
-    </MotionCard>
+    </div>
   )
 }
 
@@ -192,7 +189,6 @@ export function DashboardPage() {
               hint="Active documents in this organization"
               icon={FileStack}
               loading={documentsQuery.isLoading}
-              delay={0.02}
             />
             <StatCard
               label="Indexed"
@@ -201,7 +197,6 @@ export function DashboardPage() {
               icon={CheckCircle2}
               tone="success"
               loading={documentsQuery.isLoading}
-              delay={0.07}
             />
             <StatCard
               label="Processing"
@@ -210,7 +205,6 @@ export function DashboardPage() {
               icon={Loader2}
               tone="warning"
               loading={documentsQuery.isLoading}
-              delay={0.12}
             />
             <StatCard
               label="Failed"
@@ -219,13 +213,12 @@ export function DashboardPage() {
               icon={FileWarning}
               tone="danger"
               loading={documentsQuery.isLoading}
-              delay={0.17}
             />
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
             <div className="space-y-5">
-              <MotionCard interactive={false} delay={0.08}>
+              <Card>
                 <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
                   <div>
                     <CardTitle>Recently updated</CardTitle>
@@ -280,7 +273,7 @@ export function DashboardPage() {
                           <li key={document.id}>
                             <Link
                               to={`/app/documents/${document.id}`}
-                              className="group -mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors first:pt-0 last:pb-0 hover:bg-muted/40"
+                              className="group flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
                             >
                               <FileTypeIcon
                                 fileName={version?.file_name}
@@ -306,7 +299,7 @@ export function DashboardPage() {
                     </ul>
                   )}
                 </CardContent>
-              </MotionCard>
+              </Card>
 
               {failedDocuments.length > 0 && (
                 <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-4">
@@ -340,7 +333,7 @@ export function DashboardPage() {
             </div>
 
             <div className="space-y-5">
-              <MotionCard interactive={false} delay={0.08}>
+              <Card>
                 <CardHeader>
                   <CardTitle>Index coverage</CardTitle>
                   <p className="text-xs text-muted-foreground">
@@ -366,9 +359,9 @@ export function DashboardPage() {
                     <Link to="/app/documents">Review document statuses</Link>
                   </Button>
                 </CardContent>
-              </MotionCard>
+              </Card>
 
-              <MotionCard interactive={false} delay={0.08}>
+              <Card>
                 <CardHeader>
                   <CardTitle>Quick actions</CardTitle>
                 </CardHeader>
@@ -402,10 +395,10 @@ export function DashboardPage() {
                     </Button>
                   )}
                 </CardContent>
-              </MotionCard>
+              </Card>
 
               {can('audit:read') && (
-                <MotionCard interactive={false} delay={0.08}>
+                <Card>
                   <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
                     <CardTitle>Recent activity</CardTitle>
                     <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-2xs">
@@ -450,12 +443,12 @@ export function DashboardPage() {
                       </ol>
                     )}
                   </CardContent>
-                </MotionCard>
+                </Card>
               )}
             </div>
           </div>
 
-          <MotionCard interactive={false} delay={0.12}>
+          <Card>
             <CardHeader>
               <SectionHeading
                 title="Where to start"
@@ -476,20 +469,19 @@ export function DashboardPage() {
                   title: 'Review the trail',
                   body: 'Uploads, versions, archives and restores are recorded in the audit log with actor and timestamp.',
                 },
-              ].map((item, index) => (
-                <MotionCard
+              ].map((item) => (
+                <div
                   key={item.title}
-                  delay={0.16 + index * 0.06}
-                  className="rounded-lg border-border/70 bg-muted/20 p-4"
+                  className="rounded-lg border border-border/70 bg-muted/20 p-4"
                 >
                   <p className="text-sm font-medium">{item.title}</p>
                   <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
                     {item.body}
                   </p>
-                </MotionCard>
+                </div>
               ))}
             </CardContent>
-          </MotionCard>
+          </Card>
         </>
       )}
     </div>

@@ -1,10 +1,7 @@
 import { Link } from 'react-router-dom'
-import { motion, useReducedMotion } from 'framer-motion'
 import { Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { EASE, Reveal } from '@/components/motion/Reveal'
-import { TextReveal } from '@/components/motion/TextReveal'
 import { cn } from '@/lib/utils'
 
 const TIERS = [
@@ -58,35 +55,26 @@ const TIERS = [
 ]
 
 export function PricingSection() {
-  const reduce = useReducedMotion()
-
   return (
     <section id="pricing" className="scroll-mt-24 py-20 sm:py-24">
       <div className="container">
-        <Reveal className="mx-auto max-w-2xl text-center">
+        <div className="mx-auto max-w-2xl text-center">
           <p className="label-caps">Pricing</p>
-          <h2 className="mt-3 font-display text-display-sm">
-            <TextReveal text="Priced per lawyer, not per document" />
-          </h2>
+          <h2 className="mt-3 font-display text-display-sm">Priced per lawyer, not per document</h2>
           <p className="mt-4 text-muted-foreground">
             Every plan includes document indexing, version history and the audit trail. Upgrade when
             your team grows — your record stays intact.
           </p>
-        </Reveal>
+        </div>
 
         <div className="mt-12 grid gap-5 lg:grid-cols-3">
-          {TIERS.map((tier, index) => (
-            <motion.div
+          {TIERS.map((tier) => (
+            <div
               key={tier.name}
               className={cn(
                 'relative flex flex-col rounded-xl border bg-card p-6 shadow-card',
                 tier.highlight ? 'border-accent/45 ring-1 ring-accent/20' : 'border-border/80'
               )}
-              initial={reduce ? false : { opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.2 }}
-              transition={{ duration: 0.55, delay: index * 0.09, ease: EASE }}
-              whileHover={reduce ? undefined : { y: -7, scale: 1.012 }}
             >
               {tier.highlight && (
                 <Badge tone="gold" className="absolute -top-2.5 left-6">
@@ -124,7 +112,7 @@ export function PricingSection() {
                   <Link to="/register">{tier.cta}</Link>
                 )}
               </Button>
-            </motion.div>
+            </div>
           ))}
         </div>
 

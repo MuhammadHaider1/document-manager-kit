@@ -319,7 +319,7 @@ class MemberService:
         self, token: str, user: User
     ) -> AcceptInvitationResponse:
         invitation = await self.db.scalar(
-            select(Invitation).where(Invitation.token == token)
+            select(Invitation).where(Invitation.token == token).with_for_update()
         )
         if not invitation:
             raise HTTPException(
@@ -374,7 +374,14 @@ class MemberService:
                 detail="The invited role no longer exists. Ask for a new invitation.",
             )
 
-        organization = await self.db.get(Organization, invitation.organization_id)
+        # Lock the organization before checking for an existing membership. An
+        # absent membership row cannot be locked, so this serializes concurrent
+        # acceptances (including distinct invites for the same organization).
+        organization = await self.db.scalar(
+            select(Organization)
+            .where(Organization.id == invitation.organization_id)
+            .with_for_update()
+        )
         if not organization:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

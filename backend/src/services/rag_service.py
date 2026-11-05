@@ -17,6 +17,8 @@ from src.utils.chunking import chunk_text
 
 logger = logging.getLogger(__name__)
 
+SIMILARITY_THRESHOLD = 0.65
+
 SYSTEM_PROMPT = (
     "You are Docuflow's document assistant. Answer strictly from the supplied "
     "context excerpts. Be concise and precise. Quote exact numbers, dates, "
@@ -42,8 +44,8 @@ MULTIPLE_CHOICE_INSTRUCTION = (
 )
 
 NO_CONTEXT_MESSAGE = (
-    "No relevant information found in documents. Upload and process some "
-    "documents first."
+    "No relevant information found in documents. Would you like me to answer "
+    "using **general knowledge** instead?"
 )
 
 RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
@@ -104,6 +106,7 @@ class RAGService:
         try:
             self.embedding_service = EmbeddingService()
         except Exception:
+            logger.exception("Could not initialize embedding service")
             self.embedding_service = None
         self.api_key = (settings.OPENROUTER_API_KEY or "").strip()
 
@@ -117,41 +120,38 @@ class RAGService:
         if not raw_chunks:
             return []
 
+        if self.embedding_service is None:
+            raise RuntimeError(
+                "Embedding service is unavailable; document chunks cannot be stored."
+            )
+
+        loop = asyncio.get_running_loop()
         try:
-            loop = asyncio.get_running_loop()
-            if self.embedding_service:
-                try:
-                    embeddings = await loop.run_in_executor(
-                        None, self.embedding_service.get_embeddings_batch, raw_chunks
-                    )
-                except Exception:
-                    logger.exception(
-                        "Embedding batch failed for document %s; storing chunks "
-                        "without vectors",
-                        document_id,
-                    )
-                    embeddings = [None] * len(raw_chunks)
-            else:
-                embeddings = [None] * len(raw_chunks)
+            embeddings = await loop.run_in_executor(
+                None, self.embedding_service.get_embeddings_batch, raw_chunks
+            )
+        except Exception:
+            logger.exception("Embedding generation failed for document %s", document_id)
+            raise
 
-            chunk_objects = []
-            for piece, vector in zip(raw_chunks, embeddings):
-                try:
-                    chunk_objects.append(
-                        DocumentChunk(
-                            document_id=document_id,
-                            chunk_text=piece,
-                            embedding=vector,
-                        )
-                    )
-                except Exception:
-                    chunk_objects.append(
-                        DocumentChunk(document_id=document_id, chunk_text=piece)
-                    )
+        if len(embeddings) != len(raw_chunks):
+            raise RuntimeError(
+                "Embedding service returned a different number of vectors "
+                f"({len(embeddings)}) than document chunks ({len(raw_chunks)})."
+            )
 
+        chunk_objects = [
+            DocumentChunk(
+                document_id=document_id,
+                chunk_text=piece,
+                embedding=vector,
+            )
+            for piece, vector in zip(raw_chunks, embeddings)
+        ]
+
+        try:
             self.db_session.add_all(chunk_objects)
             await self.db_session.commit()
-            return chunk_objects
         except Exception:
             await self.db_session.rollback()
             logger.exception(
@@ -159,7 +159,8 @@ class RAGService:
                 len(raw_chunks),
                 document_id,
             )
-            return []
+            raise
+        return chunk_objects
 
     @staticmethod
     def _select_diverse_chunks(
@@ -202,65 +203,32 @@ class RAGService:
     async def search_similar_chunks(
         self, query: str, org_id: uuid.UUID, limit: int = 5
     ) -> List[DocumentChunk]:
-        # Try vector search first
-        try:
-            if self.embedding_service:
-                loop = asyncio.get_running_loop()
-                try:
-                    query_embedding = await loop.run_in_executor(
-                        None, self.embedding_service.get_embeddings, query
-                    )
-                    stmt = (
-                        select(DocumentChunk)
-                        .join(Document, DocumentChunk.document_id == Document.id)
-                        .where(
-                            Document.organization_id == org_id,
-                            Document.is_archived.is_(False),
-                        )
-                        .order_by(
-                            DocumentChunk.embedding.cosine_distance(query_embedding)
-                        )
-                        .limit(max(limit * 4, 10))
-                    )
-                    result = await self.db_session.execute(stmt)
-                    chunks = list(result.scalars().all())
-                    if chunks:
-                        return self._select_diverse_chunks(chunks, limit)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Fallback: simple text search / recent chunks
-        try:
-            q = query.lower()
-            stmt = (
-                select(DocumentChunk)
-                .join(Document, DocumentChunk.document_id == Document.id)
-                .where(
-                    Document.organization_id == org_id,
-                    Document.is_archived.is_(False),
-                )
-                .order_by(DocumentChunk.id.desc())
-                .limit(limit * 3)
-            )
-            result = await self.db_session.execute(stmt)
-            chunks = list(result.scalars().all())
-            if not chunks:
-                return []
-
-            scored = []
-            for c in chunks:
-                text = (c.chunk_text or "").lower()
-                score = sum(1 for w in q.split() if len(w) > 3 and w in text)
-                scored.append((score, c))
-            scored.sort(key=lambda x: x[0], reverse=True)
-            top = [c for s, c in scored if s > 0]
-            if top:
-                return top[:limit]
-            return chunks[:limit]
-        except Exception:
+        if limit <= 0:
             return []
+        if self.embedding_service is None:
+            raise RuntimeError(
+                "Embedding service is unavailable; vector search cannot be performed."
+            )
+
+        loop = asyncio.get_running_loop()
+        query_embedding = await loop.run_in_executor(
+            None, self.embedding_service.get_embeddings, query
+        )
+        cosine_distance = DocumentChunk.embedding.cosine_distance(query_embedding)
+        stmt = (
+            select(DocumentChunk)
+            .join(Document, DocumentChunk.document_id == Document.id)
+            .where(
+                Document.organization_id == org_id,
+                Document.is_archived.is_(False),
+                cosine_distance <= 1.0 - SIMILARITY_THRESHOLD,
+            )
+            .order_by(cosine_distance)
+            .limit(max(limit * 4, 10))
+        )
+        result = await self.db_session.execute(stmt)
+        chunks = list(result.scalars().all())
+        return self._select_diverse_chunks(chunks, limit)
 
     async def _document_titles(
         self, chunks: Sequence[DocumentChunk]
@@ -291,55 +259,73 @@ class RAGService:
         return False
 
     @staticmethod
+    def _normalize_history(
+        history: Sequence[dict[str, str]] | None,
+    ) -> list[tuple[str, str]]:
+        if not history:
+            return []
+
+        messages: list[tuple[str, str]] = []
+        for message in history[-6:]:
+            role = message.get("role", "").strip().lower()
+            content = message.get("content", "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append((role, content[-2000:]))
+        return messages
+
+    @staticmethod
     def _build_prompt(
         query: str,
         chunks: Sequence[DocumentChunk],
         titles: dict[uuid.UUID, str],
+        history: Sequence[tuple[str, str]] = (),
     ) -> str:
         blocks = []
         for index, chunk in enumerate(chunks, start=1):
             title = titles.get(chunk.document_id) or "Untitled document"
             blocks.append(f"[Source {index}: {title}]\n{chunk.chunk_text}")
         context = "\n\n".join(blocks)
+        conversation = ""
+        if history:
+            turns = "\n".join(f"{role}: {content}" for role, content in history)
+            conversation = (
+                "Conversation history (use only to resolve references in the "
+                f"current question):\n{turns}\n\n"
+            )
         return (
             f"{SYSTEM_PROMPT}\n\n"
             f"Context excerpts from the organization's documents:\n\n"
             f"{context}\n\n"
+            f"{conversation}"
             f"Question: {query}\n\n"
             "Answer using only the context above. If the context does not "
             "contain the answer, say so explicitly."
         )
 
     async def _prepare_prompt(
-        self, query: str, org_id: uuid.UUID
+        self,
+        query: str,
+        org_id: uuid.UUID,
+        history: Sequence[dict[str, str]] | None = None,
     ) -> tuple[str | None, List[DocumentChunk], bool]:
+        conversation = self._normalize_history(history)
+        retrieval_query = query
+        if conversation:
+            retrieval_query = "\n".join(
+                [
+                    *(f"{role}: {content}" for role, content in conversation),
+                    f"current question: {query}",
+                ]
+            )
         similar_chunks = await self.search_similar_chunks(
-            query=query, org_id=org_id, limit=5
+            query=retrieval_query, org_id=org_id, limit=5
         )
-        if not similar_chunks:
-            # Try to get any recent document content
-            try:
-                stmt = (
-                    select(DocumentChunk)
-                    .join(Document, DocumentChunk.document_id == Document.id)
-                    .where(
-                        Document.organization_id == org_id,
-                        Document.is_archived.is_(False),
-                    )
-                    .order_by(DocumentChunk.id.desc())
-                    .limit(10)
-                )
-                result = await self.db_session.execute(stmt)
-                similar_chunks = list(result.scalars().all())
-            except Exception:
-                pass
-
         if not similar_chunks:
             return None, [], False
 
         titles = await self._document_titles(similar_chunks)
         is_multiple_choice = self._context_has_multiple_choice(similar_chunks)
-        prompt = self._build_prompt(query, similar_chunks, titles)
+        prompt = self._build_prompt(query, similar_chunks, titles, conversation)
         if is_multiple_choice:
             prompt += MULTIPLE_CHOICE_INSTRUCTION
         return prompt, similar_chunks, is_multiple_choice
@@ -561,8 +547,15 @@ class RAGService:
     # ------------------------------------------------------------------
     # Public answer APIs
     # ------------------------------------------------------------------
-    async def answer_query(self, query: str, org_id: uuid.UUID) -> str:
-        prompt, chunks, is_multiple_choice = await self._prepare_prompt(query, org_id)
+    async def answer_query(
+        self,
+        query: str,
+        org_id: uuid.UUID,
+        history: Sequence[dict[str, str]] | None = None,
+    ) -> str:
+        prompt, chunks, is_multiple_choice = await self._prepare_prompt(
+            query, org_id, history
+        )
         if not prompt or not chunks:
             return NO_CONTEXT_MESSAGE
 
@@ -582,9 +575,14 @@ class RAGService:
             return f"AI answer generation failed: {exc}"
 
     async def answer_query_stream(
-        self, query: str, org_id: uuid.UUID
+        self,
+        query: str,
+        org_id: uuid.UUID,
+        history: Sequence[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str, None]:
-        prompt, chunks, is_multiple_choice = await self._prepare_prompt(query, org_id)
+        prompt, chunks, is_multiple_choice = await self._prepare_prompt(
+            query, org_id, history
+        )
         if not prompt or not chunks:
             yield NO_CONTEXT_MESSAGE
             return

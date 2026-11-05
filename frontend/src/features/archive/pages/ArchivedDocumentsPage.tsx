@@ -5,8 +5,7 @@ import { Archive, ArchiveRestore, Info, RefreshCw, RotateCcw, SearchX } from 'lu
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { MotionCard } from '@/components/motion/MotionCard'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -143,7 +142,7 @@ export function ArchivedDocumentsPage() {
         </div>
       )}
 
-      <MotionCard interactive={false}>
+      <Card>
         <CardHeader className="flex-row flex-wrap items-end justify-between gap-3">
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2">
@@ -274,7 +273,7 @@ export function ArchivedDocumentsPage() {
             </Table>
           )}
         </CardContent>
-      </MotionCard>
+      </Card>
 
       <ConfirmDialog
         open={Boolean(restoreTarget)}

@@ -1,12 +1,12 @@
-# RAG Document Manager
+# Docuflow
 
 **A multi-tenant legal document workspace with organization-scoped AI search.**
 
-RAG Document Manager combines versioned document management, folder trees, comments,
-an audit trail, role-based access control and invitations with a retrieval-augmented
+Docuflow combines versioned document management, folder trees, comments, an audit
+trail, role-based access control and invitations with a retrieval-augmented
 generation (RAG) assistant that answers from a tenant's own files.
 
-[![CI](https://github.com/MuhammadHaider1/rag-document-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/MuhammadHaider1/rag-document-manager/actions/workflows/ci.yml)
+[![CI](https://github.com/MuhammadHaider1/docuflow/actions/workflows/ci.yml/badge.svg)](https://github.com/MuhammadHaider1/docuflow/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
@@ -45,15 +45,15 @@ generation (RAG) assistant that answers from a tenant's own files.
 
 ```mermaid
 flowchart LR
-  UI["React SPA"] -->|"/api/v1"| API["FastAPI"]
-  API --> PG["PostgreSQL + pgvector"]
-  API --> REDIS["Redis"]
-  API --> MINIO["MinIO / S3"]
-  API --> OR["OpenRouter"]
-  REDIS --> WORKER["Celery worker"]
+  UI[React SPA] -->|/api/v1| API[FastAPI]
+  API --> PG[(PostgreSQL<br/>+ pgvector)]
+  API --> REDIS[(Redis)]
+  API --> MINIO[(MinIO / S3)]
+  API --> OR[OpenRouter]
+  REDIS --> WORKER[Celery worker]
   WORKER --> PG
   WORKER --> MINIO
-  WORKER --> EMB["all-MiniLM-L6-v2"]
+  WORKER --> EMB[all-MiniLM-L6-v2]
 ```
 
 The API and Celery worker share the same codebase. Documents are uploaded through
@@ -65,7 +65,7 @@ Ask AI requests.
 ## Repository layout
 
 ```text
-rag-document-manager/
+docuflow/
 ├── .github/workflows/ci.yml     # backend lint/tests, frontend lint/tests/build, secret scan
 ├── backend/                    # FastAPI + SQLAlchemy + Celery + pgvector
 │   ├── docker/                 # API and worker Dockerfiles
@@ -118,8 +118,8 @@ rag-document-manager/
 ### 1. Clone
 
 ```bash
-git clone https://github.com/MuhammadHaider1/rag-document-manager.git
-cd rag-document-manager
+git clone https://github.com/MuhammadHaider1/docuflow.git
+cd docuflow
 ```
 
 ### 2. Backend

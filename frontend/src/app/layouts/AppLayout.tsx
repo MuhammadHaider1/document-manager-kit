@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { OrganizationSwitcher } from '@/features/organizations/components/OrganizationSwitcher'
 import { NotificationMenu } from '@/features/notifications/components/NotificationMenu'
 import { PageLoader } from '@/components/shared/PageLoader'
-import { PageTransition } from '@/components/motion/PageTransition'
 import { useActiveOrganization } from '@/hooks/useActiveOrganization'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { useUiStore } from '@/store/ui'
@@ -97,9 +96,7 @@ export function AppLayout() {
             className="mx-auto w-full max-w-[88rem] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
           >
             <Suspense fallback={<PageLoader label="Loading page" />}>
-              <PageTransition>
-                <Outlet />
-              </PageTransition>
+              <Outlet />
             </Suspense>
           </main>
         </div>

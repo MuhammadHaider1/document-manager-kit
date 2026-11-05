@@ -1,8 +1,8 @@
-# RAG Document Manager — Backend
+# DocuFlow
 
 **Multi-tenant document management backend with built-in RAG** — upload a PDF, DOCX or text file, and ask questions about it in natural language. Answers are grounded in your own tenant's documents and streamed back token by token.
 
-![CI](https://github.com/MuhammadHaider1/rag-document-manager/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/MuhammadHaider1/docuflow/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -140,6 +140,14 @@ question
 ```
 
 `POST /api/v1/query-stream` is identical but yields chunks as they arrive.
+
+### Hybrid chat — `POST /api/v1/chat/`
+
+The chat endpoint routes document-list requests directly to the organization-scoped
+document registry, uses RAG for document questions and follow-ups, and sends general
+questions to the configured OpenRouter model. Registry and follow-up patterns are checked
+first; other requests are classified by the configured model when available and default to
+document search if classification is unavailable.
 
 **Retrieval diversity.** Vector search fetches a wider candidate set, caps how many chunks a
 single document can contribute, drops duplicate chunks from repeated uploads, and backfills
@@ -320,8 +328,8 @@ backend/
 **Prerequisites:** Python 3.12+, Docker & Docker Compose.
 
 ```bash
-git clone https://github.com/MuhammadHaider1/rag-document-manager.git
-cd rag-document-manager/backend
+git clone https://github.com/MuhammadHaider1/docuflow.git
+cd docuflow/backend
 
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
@@ -400,6 +408,7 @@ tenant-scoped requests need an `X-Organization-Id` header.
 | **RBAC** | `GET /roles`, `GET /permissions`, assign / revoke / read member role |
 | **Members** | `GET /members`, `DELETE /members/{user_id}`, invitation create / list / preview / accept / revoke |
 | **RAG** | `POST /query`, `POST /query-stream` |
+| **Chat** | `POST /chat/` |
 | **Comments** | CRUD |
 | **Audit** | `GET /audit` |
 | **Notifications** | CRUD, read/unread, bulk mark-read |

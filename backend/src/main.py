@@ -9,6 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from src.api.v1 import comment
 from src.api.v1.audit import router as audit_router
 from src.api.v1.auth import router as auth_router
+from src.api.v1.chat import router as chat_router
 from src.api.v1.documents import router as doc_router
 from src.api.v1.members import router as members_router
 from src.api.v1.notification import router as notification_router
@@ -59,6 +60,7 @@ app.include_router(audit_router, prefix="/api/v1", tags=["Audit Logs"])
 app.include_router(notification_router, prefix="/api/v1", tags=["Notifications"])
 app.include_router(members_router, prefix="/api/v1", tags=["Members"])
 app.include_router(rag_router, prefix="/api/v1", tags=["RAG"])
+app.include_router(chat_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["Health"])

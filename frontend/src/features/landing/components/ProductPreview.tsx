@@ -1,12 +1,7 @@
-import { motion, useReducedMotion } from 'framer-motion'
 import { Check, FileText, Sparkles, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { FileTypeIcon } from '@/components/shared/FileTypeIcon'
-import { EASE } from '@/components/motion/Reveal'
-import { Typewriter } from '@/components/motion/Typewriter'
-
-const QUESTION = ['Which contracts expire in the next 90 days?']
 
 const ROWS = [
   {
@@ -34,8 +29,6 @@ const ROWS = [
  * screenshots and no live API calls — the landing page is public.
  */
 export function ProductPreview() {
-  const reduce = useReducedMotion()
-
   return (
     <div className="relative mx-auto w-full max-w-5xl">
       <div
@@ -66,15 +59,10 @@ export function ProductPreview() {
 
             <ul className="space-y-2">
               {ROWS.map((row, index) => (
-                <motion.li
+                <li
                   key={row.name}
                   className="flex items-center gap-3 rounded-lg border border-border/70 bg-background/60 px-3 py-2.5"
-                  initial={reduce ? false : { opacity: 0, x: -12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.45, delay: 0.5 + index * 0.12, ease: EASE }}
-                  whileHover={
-                    reduce ? undefined : { x: 4, borderColor: 'hsl(var(--accent) / 0.4)' }
-                  }
+                  style={{ animationDelay: `${index * 120}ms` }}
                 >
                   <FileTypeIcon fileName={row.name} />
                   <div className="min-w-0 flex-1">
@@ -84,7 +72,7 @@ export function ProductPreview() {
                     </p>
                   </div>
                   <StatusBadge status={row.status} className="hidden sm:inline-flex" />
-                </motion.li>
+                </li>
               ))}
             </ul>
 
@@ -107,16 +95,11 @@ export function ProductPreview() {
               </Badge>
             </div>
 
-            <div className="mt-3 min-h-[2.25rem] rounded-lg border border-border/70 bg-background/60 px-3 py-2 text-[0.8125rem] text-muted-foreground">
-              <Typewriter phrases={QUESTION} typingSpeed={42} deletingSpeed={18} pause={3400} />
+            <div className="mt-3 rounded-lg border border-border/70 bg-background/60 px-3 py-2 text-[0.8125rem] text-muted-foreground">
+              Which contracts expire in the next 90 days?
             </div>
 
-            <motion.div
-              className="mt-3 space-y-2 text-[0.8125rem] leading-relaxed"
-              initial={reduce ? false : { opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 1.5, ease: EASE }}
-            >
+            <div className="mt-3 space-y-2 text-[0.8125rem] leading-relaxed">
               <p>
                 Three agreements expire before <strong>31 January</strong>:
               </p>
@@ -133,14 +116,9 @@ export function ProductPreview() {
                   <span className="text-foreground">Ortega SOW</span> — 19 Jan, no renewal clause.
                 </li>
               </ul>
-            </motion.div>
+            </div>
 
-            <motion.div
-              className="mt-4 border-t border-border/70 pt-3"
-              initial={reduce ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.5, delay: 1.9 }}
-            >
+            <div className="mt-4 border-t border-border/70 pt-3">
               <p className="mb-2 text-2xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 Sources
               </p>
@@ -155,7 +133,7 @@ export function ProductPreview() {
                   </span>
                 ))}
               </div>
-            </motion.div>
+            </div>
           </div>
         </div>
       </div>
