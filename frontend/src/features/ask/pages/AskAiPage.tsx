@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import {
   ArrowUp,
@@ -15,6 +16,7 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { MotionCard } from '@/components/motion/MotionCard'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { MarkdownAnswer } from '@/components/shared/MarkdownAnswer'
@@ -46,6 +48,7 @@ function nextId(): string {
 
 export function AskAiPage() {
   useDocumentTitle('Ask AI')
+  const reduce = useReducedMotion()
   const user = useAuthStore((state) => state.user)
   const { activeOrganization } = useActiveOrganization()
   const { roleName } = useCapabilities()
@@ -257,14 +260,17 @@ export function AskAiPage() {
                 </div>
                 <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
                   {suggestions.map((suggestion) => (
-                    <button
+                    <motion.button
                       key={suggestion}
                       type="button"
                       onClick={() => void runQuery(suggestion)}
-                      className="rounded-lg border border-border/70 bg-card px-3.5 py-2.5 text-left text-xs leading-relaxed text-muted-foreground transition-colors hover:border-accent/50 hover:text-foreground"
+                      className="rounded-lg border border-border/70 bg-card px-3.5 py-2.5 text-left text-xs leading-relaxed text-muted-foreground shadow-sm transition-[color,background-color,border-color,box-shadow] duration-200 hover:border-accent/50 hover:bg-muted/30 hover:text-foreground hover:shadow-card"
+                      whileHover={reduce ? undefined : { y: -2 }}
+                      whileTap={reduce ? undefined : { scale: 0.98 }}
+                      transition={{ type: 'spring', stiffness: 380, damping: 26 }}
                     >
                       {suggestion}
-                    </button>
+                    </motion.button>
                   ))}
                 </div>
               </div>
@@ -412,7 +418,7 @@ export function AskAiPage() {
         </Card>
 
         <aside className="space-y-4">
-          <Card>
+          <MotionCard interactive={false} delay={0.08}>
             <CardHeader>
               <CardTitle className="text-base">How retrieval works</CardTitle>
             </CardHeader>
@@ -436,7 +442,7 @@ export function AskAiPage() {
                 passages. Documents still processing may not appear.
               </p>
             </CardContent>
-          </Card>
+          </MotionCard>
 
           <div className="rounded-xl border border-info/25 bg-info/5 p-4 text-xs leading-relaxed text-muted-foreground">
             <p className="flex items-center gap-1.5 font-medium text-foreground">
@@ -449,27 +455,30 @@ export function AskAiPage() {
             </p>
           </div>
 
-          <Card>
+          <MotionCard interactive={false} delay={0.14}>
             <CardHeader>
               <CardTitle className="text-base">Suggested questions</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-1.5">
               {SUGGESTED_QUESTIONS.map((suggestion) => (
-                <button
+                <motion.button
                   key={suggestion}
                   type="button"
                   disabled={streaming}
                   onClick={() => void runQuery(suggestion)}
                   className="rounded-md px-2 py-1.5 text-left text-xs leading-relaxed text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
+                  whileHover={reduce || streaming ? undefined : { x: 3 }}
+                  whileTap={reduce || streaming ? undefined : { scale: 0.98 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 26 }}
                 >
                   {suggestion}
-                </button>
+                </motion.button>
               ))}
             </CardContent>
-          </Card>
+          </MotionCard>
 
           {user && (
-            <Card>
+            <MotionCard interactive={false} delay={0.2}>
               <CardHeader>
                 <CardTitle className="text-base">Index scope</CardTitle>
               </CardHeader>
@@ -485,7 +494,7 @@ export function AskAiPage() {
                   </Link>
                 </Button>
               </CardContent>
-            </Card>
+            </MotionCard>
           )}
         </aside>
       </div>

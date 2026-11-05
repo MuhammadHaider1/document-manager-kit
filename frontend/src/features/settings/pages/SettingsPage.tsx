@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
@@ -19,7 +20,8 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { MotionCard } from '@/components/motion/MotionCard'
 import { Field } from '@/components/shared/Field'
 import { Input } from '@/components/ui/input'
 import {
@@ -77,6 +79,7 @@ async function copyValue(value: string, label: string) {
 
 export function SettingsPage() {
   useDocumentTitle('Settings')
+  const reduce = useReducedMotion()
   const navigate = useNavigate()
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
@@ -187,7 +190,7 @@ export function SettingsPage() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="space-y-5">
-          <Card>
+          <MotionCard interactive={false}>
             <CardHeader>
               <SectionHeading
                 title="Organization profile"
@@ -313,9 +316,9 @@ export function SettingsPage() {
                 )}
               </form>
             </CardContent>
-          </Card>
+          </MotionCard>
 
-          <Card>
+          <MotionCard interactive={false}>
             <CardHeader>
               <SectionHeading
                 title="Account"
@@ -369,11 +372,11 @@ export function SettingsPage() {
                 Sign out of this browser
               </Button>
             </CardContent>
-          </Card>
+          </MotionCard>
         </div>
 
         <div className="space-y-5">
-          <Card>
+          <MotionCard interactive={false}>
             <CardHeader>
               <SectionHeading title="Appearance" description="Applies to this browser only." />
             </CardHeader>
@@ -383,23 +386,26 @@ export function SettingsPage() {
                   const Icon = option.icon
                   const active = theme === option.value
                   return (
-                    <button
+                    <motion.button
                       key={option.value}
                       type="button"
                       role="radio"
                       aria-checked={active}
                       onClick={() => setTheme(option.value)}
                       className={cn(
-                        'flex flex-col items-center gap-2 rounded-lg border px-2 py-3.5 text-xs transition-colors',
+                        'flex flex-col items-center gap-2 rounded-lg border px-2 py-3.5 text-xs transition-[color,background-color,border-color,box-shadow] duration-200',
                         active
-                          ? 'border-accent/60 bg-accent-soft/60 text-foreground'
-                          : 'border-border bg-card text-muted-foreground hover:border-accent/40 hover:text-foreground'
+                          ? 'border-accent/60 bg-accent-soft/60 text-foreground shadow-sm'
+                          : 'border-border bg-card text-muted-foreground hover:border-accent/40 hover:bg-muted/30 hover:text-foreground'
                       )}
+                      whileHover={reduce ? undefined : { y: -2 }}
+                      whileTap={reduce ? undefined : { scale: 0.97 }}
+                      transition={{ type: 'spring', stiffness: 380, damping: 26 }}
                     >
                       <Icon className="h-4 w-4" aria-hidden="true" />
                       {option.label}
                       {active && <Check className="h-3 w-3 text-accent" aria-hidden="true" />}
-                    </button>
+                    </motion.button>
                   )
                 })}
               </div>
@@ -408,9 +414,9 @@ export function SettingsPage() {
                 changes.
               </p>
             </CardContent>
-          </Card>
+          </MotionCard>
 
-          <Card>
+          <MotionCard interactive={false}>
             <CardHeader>
               <SectionHeading title="Session & data" />
             </CardHeader>
@@ -432,10 +438,10 @@ export function SettingsPage() {
                 API base path: <span className="font-mono">{API_BASE_URL}</span>
               </p>
             </CardContent>
-          </Card>
+          </MotionCard>
 
           {activeOrganization && (
-            <Card className="border-destructive/30">
+            <MotionCard interactive={false} className="border-destructive/30">
               <CardHeader>
                 <CardTitle className="text-base text-destructive">Danger zone</CardTitle>
                 <p className="text-xs leading-relaxed text-muted-foreground">
@@ -463,7 +469,7 @@ export function SettingsPage() {
                   </p>
                 )}
               </CardContent>
-            </Card>
+            </MotionCard>
           )}
         </div>
       </div>
