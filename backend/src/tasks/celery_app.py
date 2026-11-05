@@ -1,9 +1,13 @@
+import os
+
 from celery import Celery
 
+# The defaults match docker-compose.yml. Deployments can point the worker at a
+# managed Redis instance without editing code by setting the env vars.
 app = Celery(
     "docuflow_celery",
-    broker="redis://localhost:6380/0",
-    backend="redis://localhost:6380/1",
+    broker=os.getenv("CELERY_BROKER_URL", "redis://localhost:6380/0"),
+    backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6380/1"),
     include=["src.tasks.document_tasks"],
 )
 
