@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import AsyncGenerator, List, Literal, Sequence
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -186,6 +186,11 @@ class RAGService:
         ]
 
         try:
+            # A Celery retry must replace a document's index atomically rather
+            # than append duplicate chunks after a partial success.
+            await self.db_session.execute(
+                delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+            )
             self.db_session.add_all(chunk_objects)
             await self.db_session.commit()
         except Exception:

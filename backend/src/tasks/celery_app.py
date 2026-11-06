@@ -11,6 +11,13 @@ app = Celery(
     include=["src.tasks.document_tasks"],
 )
 
+# Redis may be shared by several local applications. A namespaced queue keeps
+# this worker from consuming stale or unrelated jobs from Celery's generic
+# ``celery`` queue, while still allowing deployments to override the name.
+app.conf.task_default_queue = os.getenv("CELERY_TASK_DEFAULT_QUEUE", "docuflow")
+app.conf.task_default_exchange = app.conf.task_default_queue
+app.conf.task_default_routing_key = app.conf.task_default_queue
+
 app.autodiscover_tasks(["src.tasks"])
 
 if __name__ == "__main__":

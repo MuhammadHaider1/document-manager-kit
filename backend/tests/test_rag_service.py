@@ -130,6 +130,48 @@ def test_diverse_chunks_deduplicate_same_text():
 
 
 @pytest.mark.asyncio
+async def test_document_indexing_replaces_existing_chunks_before_insert():
+    class EmbeddingStub:
+        @staticmethod
+        def get_embeddings_batch(texts):
+            return [[0.1] * 384 for _ in texts]
+
+    class SessionStub:
+        def __init__(self):
+            self.statements = []
+            self.added = []
+            self.committed = False
+
+        async def execute(self, statement):
+            self.statements.append(statement)
+
+        def add_all(self, chunks):
+            self.added.extend(chunks)
+
+        async def commit(self):
+            self.committed = True
+
+        async def rollback(self):
+            raise AssertionError("rollback should not be called")
+
+    session = SessionStub()
+    service = object.__new__(RAGService)
+    service.db_session = session
+    service.embedding_service = EmbeddingStub()
+    document_id = uuid.uuid4()
+
+    chunks = await service.process_and_store_document(document_id, "A short document.")
+
+    assert len(chunks) == 1
+    assert session.added == chunks
+    assert session.committed is True
+    assert len(session.statements) == 1
+    compiled = session.statements[0].compile(dialect=postgresql.dialect())
+    assert str(compiled).startswith("DELETE FROM documentchunk")
+    assert document_id in compiled.params.values()
+
+
+@pytest.mark.asyncio
 async def test_vector_search_applies_similarity_threshold_without_unscored_fallback():
     class EmbeddingStub:
         @staticmethod

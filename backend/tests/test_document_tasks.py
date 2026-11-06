@@ -9,6 +9,13 @@ next, otherwise retries and failure updates die with
 import pytest
 
 from src.tasks import document_tasks
+from src.tasks.celery_app import app
+
+
+def test_celery_uses_a_namespaced_default_queue():
+    assert app.conf.task_default_queue == "docuflow"
+    assert app.conf.task_default_exchange == "docuflow"
+    assert app.conf.task_default_routing_key == "docuflow"
 
 
 def test_run_async_disposes_engine_after_success(monkeypatch: pytest.MonkeyPatch):
