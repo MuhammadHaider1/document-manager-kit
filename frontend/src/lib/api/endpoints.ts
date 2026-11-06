@@ -218,6 +218,28 @@ export const notificationsApi = {
   markAllRead: () => apiRequest<void>('/notifications/read-all', { method: 'POST' }),
 }
 
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatResponse {
+  type: 'registry_list' | 'document_answer' | 'general_answer' | 'error'
+  answer: string
+  sources: unknown[]
+  disclaimer?: string
+}
+
+export const chatApi = {
+  send: (payload: { query: string; history: ChatHistoryMessage[] }, signal?: AbortSignal) =>
+    apiRequest<ChatResponse>('/chat/', {
+      method: 'POST',
+      body: payload,
+      organization: true,
+      signal,
+    }),
+}
+
 export const ragApi = {
   query: (query: string) =>
     apiRequest<QueryResult>(RAG_PATH, { method: 'POST', body: { query }, organization: true }),

@@ -1,15 +1,17 @@
 # DocuFlow
 
-**Multi-tenant document management backend with built-in RAG** — upload a PDF, DOCX or text file, and ask questions about it in natural language. Answers are grounded in your own tenant's documents and streamed back token by token.
+**Multi-tenant document management backend with built-in RAG** — upload a PDF,
+DOCX or text file, ask questions in natural language, list the tenant's document
+register and receive clearly labelled general knowledge when no passage matches.
 
-![CI](https://github.com/MuhammadHaider1/docuflow/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/MuhammadHaider1/document-manager-kit/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Upload a document → a Celery worker extracts the text → chunks it → generates 384-dimensional
-embeddings → stores them in **pgvector**. Then `POST /query` runs a cosine-similarity
-search scoped to your organization, feeds the top chunks to OpenRouter, and streams the answer back.
+embeddings → stores them in **pgvector**. `POST /chat/` routes registry questions to
+PostgreSQL and uses relevance-gated cosine search plus OpenRouter for other questions.
 
 > **Solo project** — architecture, backend, RBAC, the RAG pipeline, deployment and
 > production debugging were all done by me.
@@ -40,6 +42,7 @@ search scoped to your organization, feeds the top chunks to OpenRouter, and stre
 | **Multi-tenant SaaS** | Organizations, memberships, and every resource scoped by `X-Organization-Id` |
 | **RAG over your documents** | Semantic search + grounded answers, **tenant-isolated** at the SQL level |
 | **Streaming answers** | Server-Sent-Events style `text/plain` stream via `StreamingResponse` |
+| **Hybrid chat** | Exact document registry, bounded follow-up history and labelled general fallback |
 | **RBAC** | 8 roles, 11 permissions, 56 role→permission links, enforced by a reusable dependency |
 | **Async document processing** | Celery + Redis; PDF/DOCX/TXT extraction never blocks a request |
 | **Versioned storage** | `Document` + `DocumentVersion` lineage, objects in MinIO (S3-compatible) |
@@ -139,15 +142,23 @@ question
   └─ OpenRouter                      → NVIDIA Nemotron (configurable)
 ```
 
-`POST /api/v1/query-stream` is identical but yields chunks as they arrive.
+Retrieval applies a `RAG_MIN_SIMILARITY` gate (default `0.34`), so unrelated
+questions do not pull arbitrary chunks into the prompt. `POST /api/v1/query-stream`
+yields chunks as they arrive and falls back to a buffered completion if upstream
+streaming is unavailable.
 
 ### Hybrid chat — `POST /api/v1/chat/`
 
-The chat endpoint routes document-list requests directly to the organization-scoped
-document registry, uses RAG for document questions and follow-ups, and sends general
-questions to the configured OpenRouter model. Registry and follow-up patterns are checked
-first; other requests are classified by the configured model when available and default to
-document search if classification is unavailable.
+The chat endpoint handles three modes:
+
+- **Registry questions** such as “documents”, “all documents”, “which files failed”
+  and “archived documents” are answered directly from the organization-scoped register.
+- **Document questions and follow-ups** pass through the retrieval gate and return
+  source document titles. A bounded history resolves natural follow-up references.
+- **General questions** receive clearly labelled general knowledge when no passage
+  clears the gate; they are never presented as document-backed.
+
+Registry and follow-up detection are deterministic, avoiding an extra model round-trip.
 
 **Retrieval diversity.** Vector search fetches a wider candidate set, caps how many chunks a
 single document can contribute, drops duplicate chunks from repeated uploads, and backfills
@@ -161,8 +172,8 @@ identifying the foundational publication when the question asks when a model was
 then matches it to the best option and labels the reply
 `(inferred; the source does not mark an answer)`. That mode also enables reasoning, greedy
 decoding (temperature `0`) and a larger token budget so the reasoning step is not truncated.
-Every other question keeps the strict rule: answer only from the retrieved context, otherwise
-say the documents do not contain the answer.
+Every other document answer keeps the strict grounding rule; unmatched questions are handled
+by the labelled general-knowledge path.
 
 **Resilience.** The default model is `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`.
 A bounded retry loop covers transport errors and 429/5xx responses with exponential backoff.
@@ -318,7 +329,7 @@ backend/
 │   ├── services/                 # business logic, RAG, embedding, storage
 │   ├── tasks/                    # Celery app + document pipeline
 │   └── utils/chunking.py         # sliding-window splitter
-└── tests/                        # pytest suite, 108 tests (statement-aware fake DB)
+└── tests/                        # pytest suite, 158 tests (statement-aware fake DB)
 ```
 
 ---
@@ -328,8 +339,8 @@ backend/
 **Prerequisites:** Python 3.12+, Docker & Docker Compose.
 
 ```bash
-git clone https://github.com/MuhammadHaider1/docuflow.git
-cd docuflow/backend
+git clone https://github.com/MuhammadHaider1/document-manager-kit.git
+cd document-manager-kit/backend
 
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
@@ -428,7 +439,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 ## Testing & CI
 
 ```bash
-pytest              # 108 tests
+pytest              # 158 tests
 ruff check src/ tests/ scripts/
 ruff format --check src/ tests/ scripts/
 ```

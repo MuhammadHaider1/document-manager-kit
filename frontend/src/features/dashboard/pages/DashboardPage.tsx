@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   FileStack,
   FileWarning,
@@ -15,7 +16,8 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { MotionCard } from '@/components/motion/MotionCard'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -37,6 +39,14 @@ import { documentFileLabel, latestVersion } from '@/features/documents/utils'
 
 const SAMPLE_SIZE = 100
 
+function localDateKey(value: Date): string {
+  return [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, '0'),
+    String(value.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 function greeting(): string {
   const hour = new Date().getHours()
   if (hour < 12) return 'Good morning'
@@ -51,6 +61,7 @@ function StatCard({
   icon: Icon,
   tone = 'default',
   loading,
+  delay = 0,
 }: {
   label: string
   value: number | string
@@ -58,6 +69,7 @@ function StatCard({
   icon: typeof FileStack
   tone?: 'default' | 'success' | 'warning' | 'danger'
   loading?: boolean
+  delay?: number
 }) {
   const toneClass =
     tone === 'success'
@@ -69,7 +81,7 @@ function StatCard({
           : 'bg-primary/10 text-primary dark:text-foreground'
 
   return (
-    <div className="rounded-xl border border-border/80 bg-card p-4 shadow-card sm:p-5">
+    <MotionCard delay={delay} className="h-full p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <p className="label-caps">{label}</p>
         <span
@@ -84,7 +96,7 @@ function StatCard({
         <p className="mt-2 font-display text-[1.75rem] leading-none tracking-tight">{value}</p>
       )}
       <p className="mt-2 text-2xs leading-relaxed text-muted-foreground">{hint}</p>
-    </div>
+    </MotionCard>
   )
 }
 
@@ -128,6 +140,65 @@ export function DashboardPage() {
     () => documents.filter((document) => document.processing_status === 'failed').slice(0, 3),
     [documents]
   )
+
+  const statusBreakdown = useMemo(
+    () =>
+      [
+        {
+          label: 'Indexed',
+          value: stats.indexed,
+          barClass: 'bg-success',
+          dotClass: 'bg-success',
+        },
+        {
+          label: 'Processing',
+          value: stats.inFlight,
+          barClass: 'bg-warning',
+          dotClass: 'bg-warning',
+        },
+        {
+          label: 'Failed',
+          value: stats.failed,
+          barClass: 'bg-destructive',
+          dotClass: 'bg-destructive',
+        },
+      ].map((entry) => ({
+        ...entry,
+        percent: sampleSize === 0 ? 0 : Math.round((entry.value / sampleSize) * 100),
+      })),
+    [sampleSize, stats]
+  )
+
+  const uploadActivity = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const document of documents) {
+      const createdAt = new Date(document.created_at)
+      if (Number.isNaN(createdAt.getTime())) continue
+      const key = localDateKey(createdAt)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+
+    const today = new Date()
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (6 - index))
+      const key = localDateKey(date)
+      return {
+        key,
+        label: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date),
+        dateLabel: new Intl.DateTimeFormat(undefined, {
+          month: 'short',
+          day: 'numeric',
+        }).format(date),
+        count: counts.get(key) ?? 0,
+      }
+    })
+
+    return {
+      days,
+      max: Math.max(1, ...days.map((day) => day.count)),
+      total: days.reduce((sum, day) => sum + day.count, 0),
+    }
+  }, [documents])
 
   const recentDocuments = documents.slice(0, 5)
   const coverage = sampleSize === 0 ? 0 : Math.round((stats.indexed / sampleSize) * 100)
@@ -189,6 +260,7 @@ export function DashboardPage() {
               hint="Active documents in this organization"
               icon={FileStack}
               loading={documentsQuery.isLoading}
+              delay={0.02}
             />
             <StatCard
               label="Indexed"
@@ -197,6 +269,7 @@ export function DashboardPage() {
               icon={CheckCircle2}
               tone="success"
               loading={documentsQuery.isLoading}
+              delay={0.07}
             />
             <StatCard
               label="Processing"
@@ -205,6 +278,7 @@ export function DashboardPage() {
               icon={Loader2}
               tone="warning"
               loading={documentsQuery.isLoading}
+              delay={0.12}
             />
             <StatCard
               label="Failed"
@@ -213,12 +287,13 @@ export function DashboardPage() {
               icon={FileWarning}
               tone="danger"
               loading={documentsQuery.isLoading}
+              delay={0.17}
             />
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
             <div className="space-y-5">
-              <Card>
+              <MotionCard interactive={false} delay={0.08}>
                 <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
                   <div>
                     <CardTitle>Recently updated</CardTitle>
@@ -299,7 +374,135 @@ export function DashboardPage() {
                     </ul>
                   )}
                 </CardContent>
-              </Card>
+              </MotionCard>
+
+              <MotionCard interactive={false} delay={0.1}>
+                <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+                  <div>
+                    <CardTitle>Index health</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      How the loaded documents are distributed across processing states.
+                    </p>
+                  </div>
+                  <Badge tone={stats.failed > 0 ? 'warning' : 'success'}>
+                    {stats.failed > 0 ? `${stats.failed} need attention` : 'Healthy'}
+                  </Badge>
+                </CardHeader>
+                <CardContent>
+                  {documentsQuery.isLoading ? (
+                    <div className="space-y-3">
+                      <Skeleton className="h-3 w-full rounded-full" />
+                      <Skeleton className="h-12 w-full" />
+                    </div>
+                  ) : sampleSize === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Upload a document to start seeing indexing health here.
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      <div
+                        className="flex h-3 overflow-hidden rounded-full bg-muted"
+                        role="img"
+                        aria-label={statusBreakdown
+                          .map((entry) => `${entry.label}: ${entry.value} of ${sampleSize}`)
+                          .join(', ')}
+                      >
+                        {statusBreakdown.map((entry) =>
+                          entry.value > 0 ? (
+                            <span
+                              key={entry.label}
+                              className={entry.barClass}
+                              style={{ width: `${(entry.value / sampleSize) * 100}%` }}
+                            />
+                          ) : null
+                        )}
+                      </div>
+                      <dl className="grid gap-3 sm:grid-cols-3">
+                        {statusBreakdown.map((entry) => (
+                          <div key={entry.label}>
+                            <dt className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+                              <span
+                                className={`h-2 w-2 rounded-full ${entry.dotClass}`}
+                                aria-hidden="true"
+                              />
+                              {entry.label}
+                            </dt>
+                            <dd className="mt-1 flex items-baseline gap-1.5">
+                              <span className="font-display text-xl leading-none">
+                                {entry.value}
+                              </span>
+                              <span className="text-2xs text-muted-foreground">
+                                {entry.percent}%
+                              </span>
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <p className="text-2xs leading-relaxed text-muted-foreground">
+                        {sampleSize === total
+                          ? 'Calculated from every active document in this workspace.'
+                          : `Based on the latest ${sampleSize} of ${total} active documents.`}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </MotionCard>
+
+              <MotionCard interactive={false} delay={0.12}>
+                <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+                  <div>
+                    <CardTitle>Upload activity</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Documents added to this workspace over the last seven days.
+                    </p>
+                  </div>
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:text-foreground">
+                    <BarChart3 className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                </CardHeader>
+                <CardContent>
+                  {documentsQuery.isLoading ? (
+                    <Skeleton className="h-44 w-full rounded-lg" />
+                  ) : (
+                    <div className="space-y-4">
+                      <div
+                        className="flex h-40 items-end gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 pb-2 pt-4 sm:gap-3"
+                        role="img"
+                        aria-label={uploadActivity.days
+                          .map((day) => `${day.dateLabel}: ${day.count} uploads`)
+                          .join(', ')}
+                      >
+                        {uploadActivity.days.map((day) => (
+                          <div key={day.key} className="flex h-full min-w-0 flex-1 flex-col">
+                            <div className="flex min-h-0 flex-1 items-end justify-center">
+                              <span
+                                className="w-full max-w-10 rounded-t-md bg-accent/80 transition-[height] motion-reduce:transition-none"
+                                style={{
+                                  height:
+                                    day.count === 0
+                                      ? '0.25rem'
+                                      : `${Math.max(12, (day.count / uploadActivity.max) * 100)}%`,
+                                }}
+                                title={`${day.count} uploaded on ${day.dateLabel}`}
+                              />
+                            </div>
+                            <span className="mt-2 text-center text-2xs text-muted-foreground">
+                              {day.label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <p className="text-muted-foreground">Added in the last seven days</p>
+                        <p className="font-medium">
+                          {uploadActivity.total}{' '}
+                          {uploadActivity.total === 1 ? 'document' : 'documents'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </MotionCard>
 
               {failedDocuments.length > 0 && (
                 <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-4">
@@ -333,7 +536,7 @@ export function DashboardPage() {
             </div>
 
             <div className="space-y-5">
-              <Card>
+              <MotionCard interactive={false} delay={0.08}>
                 <CardHeader>
                   <CardTitle>Index coverage</CardTitle>
                   <p className="text-xs text-muted-foreground">
@@ -359,9 +562,9 @@ export function DashboardPage() {
                     <Link to="/app/documents">Review document statuses</Link>
                   </Button>
                 </CardContent>
-              </Card>
+              </MotionCard>
 
-              <Card>
+              <MotionCard interactive={false} delay={0.12}>
                 <CardHeader>
                   <CardTitle>Quick actions</CardTitle>
                 </CardHeader>
@@ -395,10 +598,10 @@ export function DashboardPage() {
                     </Button>
                   )}
                 </CardContent>
-              </Card>
+              </MotionCard>
 
               {can('audit:read') && (
-                <Card>
+                <MotionCard interactive={false} delay={0.16}>
                   <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
                     <CardTitle>Recent activity</CardTitle>
                     <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-2xs">
@@ -443,12 +646,12 @@ export function DashboardPage() {
                       </ol>
                     )}
                   </CardContent>
-                </Card>
+                </MotionCard>
               )}
             </div>
           </div>
 
-          <Card>
+          <MotionCard interactive={false} delay={0.18}>
             <CardHeader>
               <SectionHeading
                 title="Where to start"
@@ -481,7 +684,7 @@ export function DashboardPage() {
                 </div>
               ))}
             </CardContent>
-          </Card>
+          </MotionCard>
         </>
       )}
     </div>

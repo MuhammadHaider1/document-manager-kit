@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     OPENROUTER_SITE_URL: str = "http://localhost:5180"
     OPENROUTER_APP_NAME: str = "DocuFlow"
 
+    # Retrieval quality gate. Chunks below this cosine similarity are ignored,
+    # so unrelated questions fall through to a clearly-labelled general answer
+    # instead of being answered from the wrong document.
+    RAG_MIN_SIMILARITY: float = 0.34
+    RAG_MAX_CONTEXT_CHUNKS: int = 5
+    RAG_HISTORY_TURNS: int = 8
+
     # Public URL of the frontend, used to build invitation links.
     FRONTEND_URL: str = "http://localhost:5180"
     INVITATION_EXPIRE_DAYS: int = 7

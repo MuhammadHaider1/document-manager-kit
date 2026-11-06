@@ -26,7 +26,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    query: str
+    query: str = Field(min_length=1, max_length=1000)
     history: list[ChatMessage] = Field(default_factory=list, max_length=12)
 
 
@@ -48,29 +48,23 @@ async def chat_endpoint(
         )
 
     history = [message.model_dump() for message in payload.history]
-    rag_service: RAGService | None = None
 
-    async def complete_for_routing(prompt: str) -> str:
-        nonlocal rag_service
-        if rag_service is None:
-            rag_service = RAGService(db_session=db)
-        if not rag_service.is_configured:
-            return QueryType.DOCUMENT_SEARCH.value
-        return await rag_service._complete(prompt)
-
+    # Registry and follow-up detection are deterministic, so they never need an
+    # extra LLM round-trip. Everything else goes through the retrieval gate in
+    # RAGService.answer_chat, which automatically falls back to labelled general
+    # knowledge when no document passage is relevant.
     try:
-        intent = await QueryRouter.route_query(
-            query,
-            history=history,
-            llm_complete=complete_for_routing,
-        )
+        intent = await QueryRouter.route_query(query, history=history)
     except OpenRouterError:
         logger.exception("Intent classification failed; defaulting to document search")
         intent = QueryType.DOCUMENT_SEARCH
 
     if intent is QueryType.DOCUMENT_REGISTRY:
         registry_data = await DocumentRegistryService.list_documents(
-            db, x_organization_id
+            db,
+            x_organization_id,
+            status_filter=QueryRouter.registry_status(query),
+            archived=QueryRouter.is_archived_request(query),
         )
         return {
             "type": "registry_list",
@@ -78,40 +72,22 @@ async def chat_endpoint(
             "sources": [],
         }
 
-    if intent in (QueryType.DOCUMENT_SEARCH, QueryType.FOLLOW_UP):
-        if rag_service is None:
-            rag_service = RAGService(db_session=db)
-        answer = await rag_service.answer_query(
-            query=query,
-            org_id=x_organization_id,
-            history=history if intent is QueryType.FOLLOW_UP else None,
-        )
-        return {
-            "type": "document_answer",
-            "answer": answer,
-            "sources": [],
-        }
+    rag_service = RAGService(db_session=db)
+    result = await rag_service.answer_chat(
+        query=query,
+        org_id=x_organization_id,
+        history=history if intent is QueryType.FOLLOW_UP else None,
+    )
 
-    if rag_service is None:
-        rag_service = RAGService(db_session=db)
-    if rag_service.is_configured:
-        try:
-            general_answer = await rag_service._complete(query)
-        except OpenRouterError:
-            logger.exception("General knowledge fallback failed")
-        else:
-            return {
-                "type": "general_answer",
-                "answer": general_answer,
-                "sources": [],
-                "disclaimer": (
-                    "Note: Answer generated from general knowledge, "
-                    "not organization documents."
-                ),
-            }
-
-    return {
-        "type": "error",
-        "answer": "I couldn't process your request. Please try rephrasing.",
-        "sources": [],
+    response_type = {
+        "documents": "document_answer",
+        "general": "general_answer",
+    }.get(result.mode, "error")
+    body: dict[str, Any] = {
+        "type": response_type,
+        "answer": result.answer,
+        "sources": result.sources,
     }
+    if result.disclaimer:
+        body["disclaimer"] = result.disclaimer
+    return body

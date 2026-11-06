@@ -4,20 +4,18 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { AskAiPage } from '@/features/ask/pages/AskAiPage'
-import { rbacApi } from '@/lib/api/endpoints'
-import { streamRequest } from '@/lib/api/client'
+import { chatApi, rbacApi } from '@/lib/api/endpoints'
 import { ApiError } from '@/lib/api/errors'
 import { useAuthStore } from '@/store/auth'
 import type { MemberRole, Organization, User } from '@/types/domain'
 
 vi.mock('@/lib/api/endpoints', () => ({
+  chatApi: {
+    send: vi.fn(),
+  },
   rbacApi: {
     memberRole: vi.fn(),
   },
-}))
-
-vi.mock('@/lib/api/client', () => ({
-  streamRequest: vi.fn(),
 }))
 
 const user: User = {
@@ -50,21 +48,6 @@ const memberRole: MemberRole = {
   },
 }
 
-function fakeStream(chunks: string[], contentType = 'text/plain') {
-  let index = 0
-  return {
-    headers: { get: () => contentType },
-    body: {
-      getReader: () => ({
-        read: async () =>
-          index < chunks.length
-            ? { done: false, value: new TextEncoder().encode(chunks[index++]) }
-            : { done: true, value: undefined },
-      }),
-    },
-  } as unknown as Response
-}
-
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -81,7 +64,7 @@ function renderPage() {
 
 describe('AskAiPage', () => {
   beforeEach(() => {
-    vi.mocked(streamRequest).mockReset()
+    vi.mocked(chatApi.send).mockReset()
     vi.mocked(rbacApi.memberRole).mockReset()
     vi.mocked(rbacApi.memberRole).mockResolvedValue(memberRole)
     useAuthStore.setState({
@@ -92,14 +75,13 @@ describe('AskAiPage', () => {
     })
   })
 
-  it('streams a plain-text answer into the conversation', async () => {
+  it('sends a question to chat and renders the JSON answer', async () => {
     const userEventSetup = userEvent.setup()
-    vi.mocked(streamRequest).mockResolvedValue(
-      fakeStream([
-        'Either party may terminate for convenience ',
-        'with **60 days written notice**.',
-      ])
-    )
+    vi.mocked(chatApi.send).mockResolvedValue({
+      type: 'document_answer',
+      answer: 'Either party may terminate for convenience with **60 days written notice**.',
+      sources: [],
+    })
 
     renderPage()
 
@@ -111,20 +93,72 @@ describe('AskAiPage', () => {
 
     expect(await screen.findByText(/60 days written notice/i)).toBeInTheDocument()
 
-    expect(streamRequest).toHaveBeenCalledTimes(1)
-    expect(streamRequest).toHaveBeenCalledWith(
-      '/query-stream',
-      expect.objectContaining({
-        method: 'POST',
-        body: { query: 'What is the notice period?' },
-        organization: true,
-      })
+    expect(chatApi.send).toHaveBeenCalledTimes(1)
+    expect(chatApi.send).toHaveBeenCalledWith(
+      { query: 'What is the notice period?', history: [] },
+      expect.any(AbortSignal)
     )
   })
 
-  it('shows an error state when the stream fails', async () => {
+  it('sends recent conversation turns as chat history and shows the disclaimer', async () => {
     const userEventSetup = userEvent.setup()
-    vi.mocked(streamRequest).mockRejectedValue(
+    vi.mocked(chatApi.send)
+      .mockResolvedValueOnce({
+        type: 'document_answer',
+        answer: 'The contract renews annually.',
+        sources: [],
+      })
+      .mockResolvedValueOnce({
+        type: 'general_answer',
+        answer: 'It means the agreement extends for another year.',
+        sources: [],
+        disclaimer: 'This answer is based on general knowledge.',
+      })
+      .mockResolvedValueOnce({
+        type: 'general_answer',
+        answer: 'The agreement extends for one additional year.',
+        sources: [],
+      })
+
+    renderPage()
+
+    const input = screen.getByLabelText(/ask a question about this organization/i)
+    await userEventSetup.type(input, 'When does it renew?')
+    await userEventSetup.click(screen.getByRole('button', { name: /send question/i }))
+    await screen.findByText(/contract renews annually/i)
+
+    await userEventSetup.type(input, 'What does that mean?')
+    await userEventSetup.click(screen.getByRole('button', { name: /send question/i }))
+
+    expect(await screen.findByText(/based on general knowledge/i)).toBeInTheDocument()
+    expect(chatApi.send).toHaveBeenLastCalledWith(
+      {
+        query: 'What does that mean?',
+        history: [
+          { role: 'user', content: 'When does it renew?' },
+          { role: 'assistant', content: 'The contract renews annually.' },
+        ],
+      },
+      expect.any(AbortSignal)
+    )
+
+    await userEventSetup.click(screen.getByRole('button', { name: /regenerate/i }))
+    await screen.findByText(/one additional year/i)
+    expect(chatApi.send).toHaveBeenLastCalledWith(
+      {
+        query: 'What does that mean?',
+        history: [
+          { role: 'user', content: 'When does it renew?' },
+          { role: 'assistant', content: 'The contract renews annually.' },
+        ],
+      },
+      expect.any(AbortSignal)
+    )
+  })
+
+  it('shows an error state when the chat request fails', async () => {
+    const userEventSetup = userEvent.setup()
+    vi.mocked(chatApi.send).mockRejectedValue(
       new ApiError('The server ran into a problem. Please try again.', { status: 500 })
     )
 
@@ -150,6 +184,6 @@ describe('AskAiPage', () => {
     const send = screen.getByRole('button', { name: /send question/i })
     expect(send).toBeDisabled()
     await userEventSetup.click(send)
-    expect(streamRequest).not.toHaveBeenCalled()
+    expect(chatApi.send).not.toHaveBeenCalled()
   })
 })

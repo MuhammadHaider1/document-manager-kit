@@ -51,17 +51,35 @@ class LLMClient(Protocol):
 
 class QueryRouter:
     REGISTRY_PATTERNS: ClassVar[List[str]] = [
-        r"^(list|show|get|display|count|how many)\s+(all\s+)?(documents?|files?|uploads?|versions?|folders?)",
-        r"^(which|what)\s+(documents?|files?)\s+(failed|are processing|are completed|were uploaded)",
-        r"^(all\s+)?documents?$",
-        r"^(status of|check)\s+(documents?|files?)",
+        # The bare forms users actually type: "documents", "all docs", etc.
+        r"^(all\s+)?(my\s+|our\s+|the\s+)?(documents?|docs?|files?)$",
+        r"^(all\s+)?(my\s+|our\s+)?(documents?|docs?|files?)\s+(list|register)$",
+        # List requests must end at the file noun so "show documents that
+        # mention termination" stays a content search.
+        r"^(list|show|display|enumerate|view|get|give me)\s+(me\s+)?(all\s+)?(my\s+|our\s+|the\s+)?(documents?|docs?|files?|uploads?|versions?|folders?)$",
+        r"^(how many|count|number of)\b.{0,40}\b(documents?|docs?|files?|uploads?)\b",
+        r"^(which|what)\s+(documents?|docs?|files?)\s+(failed|are processing|are completed|were uploaded|need attention)",
+        r"^(list|show|display|which|what)?\s*(all\s+)?(failed|processing|pending|queued|indexed|completed|ready)\s+(documents?|docs?|files?|uploads?)$",
+        r"^(documents?|docs?|files?|uploads?)\s+(that\s+)?(failed|(are\s+)?(still\s+)?processing|are\s+pending|are\s+(indexed|completed|ready)|need\s+attention)$",
+        r"^(status of|check)\s+(the\s+)?(documents?|files?|uploads?)$",
+        r"^(recent|latest|newest)\s+(documents?|docs?|files?)$",
+        r"^(archived|deleted)\s+(documents?|docs?|files?)$",
+        r"\b(document register|document list|file register)\b",
     ]
 
     FOLLOWUP_PATTERNS: ClassVar[List[str]] = [
         r"^(the|that)\s+(first|second|third|last|previous)\s+(one|document|file)",
         r"^(what about|tell me more about)\s+(it|that|them)",
+        r"^(what about|how about)\s+(the\s+)?(first|second|third|last|next|previous)\s+(one|document|file)",
+        r"^(does|do|did|is|are|was|were|can|could|would|will|has|have|had)\s+(it|that|this|they|those|these)\b",
+        r"^(how|when|where|why)\b.{0,30}\b(it|that|this|they|them|those|these)\b",
+        r"^(and|also|then|so)\b",
         r"^(more|details|summary)$",
     ]
+
+    @staticmethod
+    def _normalise(query: str) -> str:
+        return re.sub(r"\s+", " ", query.strip().lower()).strip(" .,!?:;")
 
     CLASSIFICATION_MODEL: ClassVar[str] = "gpt-4o-mini"
     CLASSIFICATION_SYSTEM_PROMPT: ClassVar[str] = (
@@ -81,7 +99,7 @@ class QueryRouter:
         llm_client: Optional[LLMClient] = None,
         llm_complete: Optional[Callable[[str], Awaitable[str]]] = None,
     ) -> QueryType:
-        clean_query = query.strip().lower()
+        clean_query = cls._normalise(query)
 
         if history and any(
             re.search(pattern, clean_query) for pattern in cls.FOLLOWUP_PATTERNS
@@ -91,11 +109,6 @@ class QueryRouter:
         for pattern in cls.REGISTRY_PATTERNS:
             if re.search(pattern, clean_query):
                 return QueryType.DOCUMENT_REGISTRY
-
-        if clean_query in {"documents", "files", "all files", "list"}:
-            if history:
-                return QueryType.FOLLOW_UP
-            return QueryType.DOCUMENT_REGISTRY
 
         if llm_client is not None:
             return await cls._llm_classify_intent(query, llm_client)
@@ -108,6 +121,24 @@ class QueryRouter:
             return cls._parse_classification(await llm_complete(prompt))
 
         return QueryType.DOCUMENT_SEARCH
+
+    @classmethod
+    def registry_status(cls, query: str) -> Optional[str]:
+        """Return the processing-status filter implied by a registry question."""
+        text = cls._normalise(query)
+        if re.search(r"\b(failed|failure|error|errored)\b", text):
+            return "failed"
+        if re.search(r"\b(processing|indexing)\b", text):
+            return "processing"
+        if re.search(r"\b(pending|queued|waiting)\b", text):
+            return "pending"
+        if re.search(r"\b(indexed|completed|complete|ready|processed)\b", text):
+            return "completed"
+        return None
+
+    @classmethod
+    def is_archived_request(cls, query: str) -> bool:
+        return bool(re.search(r"\b(archived?|deleted)\b", cls._normalise(query)))
 
     @classmethod
     async def _llm_classify_intent(cls, query: str, llm_client: LLMClient) -> QueryType:

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
+import { CursorGlow } from '@/components/motion/CursorGlow'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { queryClient } from '@/lib/queryClient'
 import { useAuthStore } from '@/store/auth'
@@ -29,6 +30,7 @@ export function AppProviders() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider delayDuration={250} skipDelayDuration={100}>
           <AppRouter />
+          <CursorGlow />
           <Toaster
             theme={resolvedTheme}
             position="top-right"

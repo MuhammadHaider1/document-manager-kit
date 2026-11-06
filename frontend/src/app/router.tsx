@@ -79,9 +79,14 @@ function RouteFallback() {
   )
 }
 
+// GitHub Pages project sites are served under a subpath. Vite exposes that
+// value at build time, and stripping the trailing slash keeps React Router
+// happy while local development and tests continue to use "/".
+const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/'
+
 export function AppRouter() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<LandingPage />} />

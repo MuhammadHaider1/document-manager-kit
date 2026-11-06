@@ -112,6 +112,7 @@ All are optional locally; only `VITE_`-prefixed values reach the bundle.
 src/
 ├── app/              router, layouts, guards, providers
 ├── components/
+│   ├── motion/       reduced-motion-aware transitions and animated surfaces
 │   ├── ui/           shadcn-style primitives (Radix + Tailwind)
 │   └── shared/       cross-feature components (headers, states, palette)
 ├── features/
@@ -121,7 +122,7 @@ src/
 │   ├── dashboard/    organization overview
 │   ├── documents/    list, detail tabs, upload queue, folders, comments
 │   ├── archive/      audit-derived recovery list + restore by ID
-│   ├── ask/          streaming Ask AI client
+│   ├── ask/          hybrid Ask AI conversation client
 │   ├── audit/        audit log with filter, paging and CSV export
 │   ├── team/         member directory, invitations, role catalogue, invite page
 │   ├── settings/     organization, account, theme, danger zone
@@ -206,14 +207,20 @@ the presigned URL in a new tab.
 
 ### Ask AI
 
-`POST /query-stream` returns raw `text/plain` chunks (not SSE), so the client
-reads the body stream and appends decoded text. SSE frames are also handled
-defensively. Answers are rendered as sanitized Markdown; there is no `dangerouslySetInnerHTML`.
-The API returns **no citation metadata** and queries are **organization-wide**,
-not per document — the UI labels this clearly. Multiple-choice questions whose
-options are in the source but whose answer key is not are answered by choosing
-the best option and labeling it as inferred; all other answers stay grounded in
-the retrieved context.
+The page uses `POST /chat/`, which returns a JSON answer with a `type` of
+`registry_list`, `document_answer`, `general_answer` or `error`. Registry
+questions (“documents”, “all documents”, “list all documents”) are answered from
+the document register. Document answers include a source footer, and recent
+turns are sent as short conversation history so follow-up references resolve.
+When no passage is relevant the assistant answers from general knowledge with a
+visible label and disclaimer. Answers are rendered as sanitized Markdown; there
+is no `dangerouslySetInnerHTML`.
+
+The legacy `POST /query` and `/query-stream` endpoints remain organization-wide
+and do not return typed source metadata (the answer text can include a source
+footer). Multiple-choice questions whose options are in the source but whose
+answer key is not are answered by choosing the best option and labeling it as
+inferred; all other document answers stay grounded in the retrieved context.
 
 ### Archive recovery
 
@@ -246,8 +253,9 @@ Run through this against a fresh account and organization:
 5. **Document detail** — Overview/Preview/Versions/Activity/Ask AI/Comments
    tabs; upload a new version; download both versions; archive and restore;
    add/reply/delete a comment; activity lists audit events.
-6. **Ask AI** — suggested question, streamed answer, Stop, Regenerate, Copy;
-   empty input disabled; rate limit and network failures surface a message.
+6. **Ask AI** — document registry, grounded answers with source titles, labelled
+   general answers, follow-ups, Stop, Regenerate and Copy; empty input is disabled
+   and rate-limit/network failures surface a message.
 7. **Audit** — filter by entity type, page forward/back, expand details,
    export the current page as CSV.
 8. **Members & roles** — member directory with role/joined/status, inline role
@@ -261,7 +269,7 @@ Run through this against a fresh account and organization:
     outside the app shell.
 
 Automated coverage (`npm run test`) covers the capability map, API error
-mapping, upload validation/title casing, the login flow, Ask AI streaming,
+mapping, upload validation/title casing, the login flow, Ask AI conversations,
 archive-event replay, the invitation builder/dialog and the `/invite/:token`
 acceptance flow.
 
@@ -292,6 +300,15 @@ relative base.
 
 Serve `dist/` from any static host with a catch-all rewrite to `index.html`.
 
+### GitHub Pages preview
+
+`.github/workflows/deploy-pages.yml` builds the SPA with the
+`/document-manager-kit/` base path, adds `404.html` as the history fallback and
+publishes the artifact to GitHub Pages. The current preview is
+<https://muhammadhaider1.github.io/document-manager-kit/>. It is a static frontend
+preview; authenticated features still need a reachable API configured through
+`VITE_API_BASE_URL`.
+
 ---
 
 ## Backend gaps
@@ -317,9 +334,11 @@ surfaced honestly in the interface rather than faked:
    events and verifying each candidate with `GET /documents/{id}`; it also
    offers restore-by-ID for anything outside that window. The list is therefore
    best-effort, not authoritative.
-5. **RAG is organization-wide and uncited.** `/query` and `/query-stream` accept
-   only a query string; there is no document scope, conversation memory, or
-   source metadata, so answers must be verified against the source file.
+5. **Document scope is not exposed.** `/query`, `/query-stream` and `/chat/`
+   answer from the organization index rather than a single document, and history
+   is limited to the short window sent by the client. Ask AI returns source
+   titles, but there is no per-passage citation or document-level retrieval
+   switch, so answers must still be verified against the source file.
 6. **No audit totals or entity filtering.** `GET /audit-logs/` returns an array
    with `limit` (max 100) and `offset` but no total and no `entity_id` filter;
    pagination is forward/backward.
@@ -355,8 +374,9 @@ surfaces them as errors or honest empty states; fixing them is backend work.
 3. **`POST /comments/documents/{id}/comments` returns 500.** Response validation
    trips over the lazily loaded `replies` relationship (`MissingGreenlet`). The
    comment is written but the UI shows the API error because the response fails.
-4. **Ask AI is organization-wide and uncited** (see gap 5 above), and answers are
-   generated text — verify against the source document.
+4. **Ask AI is organization-wide** (see gap 5 above). It returns source titles,
+   not exact passage citations, and answers are generated text — verify against
+   the source document.
 
 ---
 

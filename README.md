@@ -4,14 +4,17 @@
 
 Docuflow combines versioned document management, folder trees, comments, an audit
 trail, role-based access control and invitations with a retrieval-augmented
-generation (RAG) assistant that answers from a tenant's own files.
+generation (RAG) assistant that combines tenant-grounded document answers with
+clearly labelled general knowledge.
 
-[![CI](https://github.com/MuhammadHaider1/docuflow/actions/workflows/ci.yml/badge.svg)](https://github.com/MuhammadHaider1/docuflow/actions/workflows/ci.yml)
+[![CI](https://github.com/MuhammadHaider1/document-manager-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/MuhammadHaider1/document-manager-kit/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+
+[Live frontend preview](https://muhammadhaider1.github.io/document-manager-kit/)
 
 ---
 
@@ -23,13 +26,15 @@ generation (RAG) assistant that answers from a tenant's own files.
   permission-aware UI, including a separate Member role for invitees.
 - **Document pipeline** — PDF, DOCX, TXT and image uploads are stored in MinIO,
   extracted, chunked and embedded into PostgreSQL with pgvector.
-- **Grounded Ask AI** — answers are generated from the requesting organization's
-  retrieved chunks and streamed token by token. If the context does not contain the
-  answer, the assistant says so instead of inventing one.
+- **Hybrid Ask AI** — registry questions are answered from the database, document
+  questions use relevance-gated organization chunks with source titles, and unmatched
+  questions receive a clearly labelled general-knowledge answer.
+- **Conversation-aware follow-ups** — a bounded client-supplied history resolves
+  references such as “Does it apply to both parties?” without storing chat server-side.
 - **Multiple-choice inference** — quiz files often contain questions and options but
   no answer key. Those questions are answered with the best option and labelled
-  `(inferred; the source does not mark an answer)`; every other question stays
-  strictly grounded.
+  `(inferred; the source does not mark an answer)`; ordinary document answers remain
+  grounded in retrieved passages.
 - **Retrieval diversity** — vector search fetches a wider candidate set, limits how
   many chunks one document can contribute, deduplicates repeated uploads and
   backfills, so a long CV cannot crowd out the quiz or contract being asked about.
@@ -73,7 +78,7 @@ docuflow/
 │   ├── migrations/             # legacy Alembic revisions (see note below)
 │   ├── scripts/                # manual RAG utilities
 │   ├── src/                    # API, models, repositories, services, tasks
-│   ├── tests/                  # pytest suite (108 tests, mocked DB session)
+│   ├── tests/                  # pytest suite (158 tests, mocked DB session)
 │   └── README.md               # backend deep dive
 ├── frontend/                   # React 18 + Vite + TypeScript SPA
 │   ├── src/                    # features, components, API client, stores
@@ -197,6 +202,9 @@ Copy the example files and fill in your own values. **Never commit real secrets.
 | `OPENROUTER_API_KEY` | Enables RAG answer generation |
 | `OPENROUTER_MODEL` | Model id; defaults to `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` |
 | `OPENROUTER_FALLBACK_MODEL` | Optional server-side fallback model |
+| `RAG_MIN_SIMILARITY` | Minimum cosine similarity for a document passage (default `0.34`) |
+| `RAG_MAX_CONTEXT_CHUNKS` | Maximum document chunks sent to the model (default `5`) |
+| `RAG_HISTORY_TURNS` | Conversation turns kept for follow-ups (default `8`) |
 | `FRONTEND_URL` | Builds invitation links |
 | `EMBEDDING_MODEL_PATH`, `EMBEDDING_MODEL_ID` | Local or Hugging Face embedding model |
 | `VITE_API_BASE_URL` | Frontend API base (default `/api/v1`) |
@@ -209,18 +217,22 @@ See [`backend/.env.example`](./backend/.env.example) and
 
 ## Ask AI / RAG behaviour
 
-1. The question is embedded with `all-MiniLM-L6-v2` (384 dimensions).
-2. pgvector returns the nearest chunks **scoped to the active organization**.
+1. The Ask AI page uses `POST /api/v1/chat/`. Registry questions such as
+   “documents”, “all documents” and “list all documents” are answered directly
+   from the database instead of the vector index.
+2. Content questions are embedded with `all-MiniLM-L6-v2` (384 dimensions), and
+   pgvector returns the nearest chunks **scoped to the active organization**.
 3. Retrieval keeps a wider candidate set, caps chunks per document and removes
    duplicates from repeated uploads before building the prompt.
-4. OpenRouter generates an answer from those excerpts only. Both
-   `POST /api/v1/query` and `POST /api/v1/query-stream` are supported; the SPA uses
-   the streaming endpoint.
-5. If the context contains a complete multiple-choice item but no answer key, the
+4. Document questions use OpenRouter with the retrieved excerpts. Responses
+   include source document titles, and short conversation history resolves follow-ups.
+5. Chunks below `RAG_MIN_SIMILARITY` are ignored. If no relevant passage is found,
+   the assistant gives a clearly labelled general-knowledge answer with a disclaimer.
+6. If the context contains a complete multiple-choice item but no answer key, the
    model recalls the fact first, chooses the best option and labels it as inferred.
-   Reasoning is enabled only for that case; all other answers remain grounded.
-6. If the answer is genuinely absent, the response says the documents do not
-   contain it.
+   Reasoning is enabled only for that case; other document answers remain grounded.
+7. Legacy `POST /api/v1/query` and `POST /api/v1/query-stream` endpoints remain
+   available; the SPA uses `/chat/` for typed responses and registry routing.
 
 The OpenRouter key is read from the backend environment and is never logged,
 returned to the browser or committed.
@@ -240,6 +252,7 @@ All routes are prefixed with `/api/v1`. Requests use
 | Documents & folders | CRUD, folder tree, versions, download |
 | RBAC & members | roles, permissions, member directory, role assignment, invitations |
 | RAG | `POST /query`, `POST /query-stream` |
+| Chat | `POST /chat/` |
 | Comments | CRUD |
 | Audit | `GET /audit` |
 | Notifications | list, read/unread, bulk mark-read |

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import {
   ArrowUp,
@@ -15,13 +16,14 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { MotionCard } from '@/components/motion/MotionCard'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { MarkdownAnswer } from '@/components/shared/MarkdownAnswer'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { streamRequest } from '@/lib/api/client'
+import { chatApi } from '@/lib/api/endpoints'
 import { ApiError } from '@/lib/api/errors'
-import { RAG_STREAM_PATH, SUGGESTED_QUESTIONS } from '@/lib/constants'
+import { SUGGESTED_QUESTIONS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import { useActiveOrganization } from '@/hooks/useActiveOrganization'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -36,6 +38,7 @@ interface ChatMessage {
   content: string
   error?: boolean
   stopped?: boolean
+  disclaimer?: string
 }
 
 let messageCounter = 0
@@ -46,6 +49,7 @@ function nextId(): string {
 
 export function AskAiPage() {
   useDocumentTitle('Ask AI')
+  const reduce = useReducedMotion()
   const user = useAuthStore((state) => state.user)
   const { activeOrganization } = useActiveOrganization()
   const { roleName } = useCapabilities()
@@ -57,19 +61,30 @@ export function AskAiPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = useRef(true)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const organizationIdRef = useRef(activeOrganization?.id ?? null)
 
   useEffect(() => {
     const node = scrollRef.current
     if (!node || !stickToBottomRef.current) return
-    node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' })
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    node.scrollTo({ top: node.scrollHeight, behavior: reduceMotion ? 'auto' : 'smooth' })
   }, [messages])
 
   useEffect(() => {
-    const controller = abortRef.current
-    return () => {
-      controller?.abort()
-    }
+    return () => abortRef.current?.abort()
   }, [])
+
+  useEffect(() => {
+    const organizationId = activeOrganization?.id ?? null
+    if (organizationIdRef.current !== organizationId) {
+      abortRef.current?.abort()
+      stickToBottomRef.current = true
+      setMessages([])
+      setStreaming(false)
+      setInput('')
+    }
+    organizationIdRef.current = organizationId
+  }, [activeOrganization?.id])
 
   const updateAssistant = useCallback((id: string, update: Partial<ChatMessage>) => {
     setMessages((current) =>
@@ -84,6 +99,19 @@ export function AskAiPage() {
 
       const assistantId = nextId()
       stickToBottomRef.current = true
+      const historyMessages = [...messages]
+      if (mode === 'regenerate') {
+        if (historyMessages[historyMessages.length - 1]?.role === 'assistant') {
+          historyMessages.pop()
+        }
+        if (historyMessages[historyMessages.length - 1]?.role === 'user') {
+          historyMessages.pop()
+        }
+      }
+      const history = historyMessages
+        .filter((message) => message.content && !message.error && !message.stopped)
+        .slice(-12)
+        .map(({ role, content }) => ({ role, content: content.slice(0, 2000) }))
       setMessages((current) => {
         const base =
           mode === 'regenerate' && current[current.length - 1]?.role === 'assistant'
@@ -100,65 +128,25 @@ export function AskAiPage() {
 
       const controller = new AbortController()
       abortRef.current = controller
-      let accumulated = ''
 
       try {
-        const response = await streamRequest(RAG_STREAM_PATH, {
-          method: 'POST',
-          body: { query: question },
-          organization: true,
-          signal: controller.signal,
+        const response = await chatApi.send(
+          {
+            query: question,
+            history,
+          },
+          controller.signal
+        )
+
+        updateAssistant(assistantId, {
+          content: response.answer,
+          disclaimer: response.disclaimer,
+          error: response.type === 'error',
         })
-
-        const contentType = response.headers.get('content-type') ?? ''
-        const isSse = contentType.includes('text/event-stream')
-
-        if (!response.body) {
-          throw new Error('The server returned an empty response.')
-        }
-
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        const append = (text: string) => {
-          if (!text) return
-          accumulated += text
-          updateAssistant(assistantId, { content: accumulated })
-        }
-
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const chunk = decoder.decode(value, { stream: true })
-          if (!isSse) {
-            append(chunk)
-            continue
-          }
-          // Some deployments wrap chunks as SSE frames. Parse them defensively.
-          buffer += chunk
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
-          for (const line of lines) {
-            if (line.startsWith('data:')) append(line.slice(5).trimStart())
-          }
-        }
-
-        if (isSse && buffer.startsWith('data:')) append(buffer.slice(5).trimStart())
-        if (!isSse) append(decoder.decode())
-
-        if (!accumulated.trim()) {
-          updateAssistant(assistantId, {
-            content: 'The assistant returned an empty answer. Try rephrasing the question.',
-            error: true,
-          })
-        } else {
-          updateAssistant(assistantId, { content: accumulated })
-        }
+        if (response.type === 'error') toast.error(response.answer)
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           updateAssistant(assistantId, {
-            content: accumulated,
             stopped: true,
           })
         } else {
@@ -169,10 +157,10 @@ export function AskAiPage() {
                 ? error.message
                 : 'The question could not be answered.'
           updateAssistant(assistantId, {
-            content: accumulated || message,
+            content: message,
             error: true,
           })
-          if (!accumulated) toast.error(message)
+          toast.error(message)
         }
       } finally {
         setStreaming(false)
@@ -180,7 +168,7 @@ export function AskAiPage() {
         textareaRef.current?.focus()
       }
     },
-    [streaming, updateAssistant]
+    [messages, streaming, updateAssistant]
   )
 
   const stop = () => {
@@ -214,7 +202,7 @@ export function AskAiPage() {
       <PageHeader
         eyebrow={activeOrganization?.name ?? 'Workspace'}
         title="Ask AI"
-        description="Ask questions in plain language. Answers are generated from passages retrieved from this organization's indexed documents."
+        description="Ask about your organization's documents, document register, or follow up on recent questions."
         context={
           <Badge tone="gold">
             <Sparkles className="h-3 w-3" aria-hidden="true" />
@@ -251,20 +239,24 @@ export function AskAiPage() {
                 <div className="max-w-md space-y-1.5">
                   <h2 className="font-display text-xl">What would you like to know?</h2>
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    Ask about clauses, obligations, dates or defined terms. Retrieval covers every
-                    indexed document in {activeOrganization?.name ?? 'this organization'}.
+                    Ask about document content, list workspace files, or ask a general question.
+                    Retrieval covers every indexed document in{' '}
+                    {activeOrganization?.name ?? 'this organization'}.
                   </p>
                 </div>
                 <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
                   {suggestions.map((suggestion) => (
-                    <button
+                    <motion.button
                       key={suggestion}
                       type="button"
                       onClick={() => void runQuery(suggestion)}
-                      className="rounded-lg border border-border/70 bg-card px-3.5 py-2.5 text-left text-xs leading-relaxed text-muted-foreground transition-colors hover:border-accent/50 hover:text-foreground"
+                      className="rounded-lg border border-border/70 bg-card px-3.5 py-2.5 text-left text-xs leading-relaxed text-muted-foreground shadow-sm transition-[color,background-color,border-color,box-shadow] duration-200 hover:border-accent/50 hover:bg-muted/30 hover:text-foreground hover:shadow-card"
+                      whileHover={reduce ? undefined : { y: -2 }}
+                      whileTap={reduce ? undefined : { scale: 0.98 }}
+                      transition={{ type: 'spring', stiffness: 380, damping: 26 }}
                     >
                       {suggestion}
-                    </button>
+                    </motion.button>
                   ))}
                 </div>
               </div>
@@ -297,16 +289,23 @@ export function AskAiPage() {
                           )}
                         >
                           {message.content ? (
-                            message.content.trim().startsWith(NO_CONTEXT_PREFIX) ? (
-                              <div className="space-y-1">
-                                <p className="text-sm font-medium">No relevant content found</p>
-                                <p className="text-sm leading-relaxed text-muted-foreground">
-                                  {message.content}
+                            <div className="space-y-2">
+                              {message.content.trim().startsWith(NO_CONTEXT_PREFIX) ? (
+                                <div className="space-y-1">
+                                  <p className="text-sm font-medium">No relevant content found</p>
+                                  <p className="text-sm leading-relaxed text-muted-foreground">
+                                    {message.content}
+                                  </p>
+                                </div>
+                              ) : (
+                                <MarkdownAnswer content={message.content} />
+                              )}
+                              {message.disclaimer && (
+                                <p className="border-t border-border/70 pt-2 text-xs text-muted-foreground">
+                                  {message.disclaimer}
                                 </p>
-                              </div>
-                            ) : (
-                              <MarkdownAnswer content={message.content} />
-                            )
+                              )}
+                            </div>
                           ) : (
                             <span className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span className="flex gap-1" aria-hidden="true">
@@ -314,7 +313,7 @@ export function AskAiPage() {
                                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.1s]" />
                                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
                               </span>
-                              Searching the organization index…
+                              Working on your question…
                             </span>
                           )}
                         </div>
@@ -412,23 +411,20 @@ export function AskAiPage() {
         </Card>
 
         <aside className="space-y-4">
-          <Card>
+          <MotionCard interactive={false} delay={0.08}>
             <CardHeader>
               <CardTitle className="text-base">How retrieval works</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-xs leading-relaxed text-muted-foreground">
               <p>
-                Your question is matched against text extracted from processed documents in{' '}
+                Document questions are matched against text extracted from processed documents in{' '}
                 <span className="font-medium text-foreground">{activeOrganization?.name}</span>.
               </p>
+              <p>Follow-up questions can use recent turns in this conversation for context.</p>
               <p>
-                Each question is answered independently; the assistant does not remember earlier
-                turns in this conversation.
-              </p>
-              <p>
-                Answers come from document passages, so Ask AI cannot enumerate the document
-                register. Use <span className="font-medium text-foreground">Documents</span> for
-                titles and versions.
+                Ask AI can list the document register; use{' '}
+                <span className="font-medium text-foreground">Documents</span> to open files and
+                manage versions.
               </p>
               <p>
                 Only documents with status{' '}
@@ -436,7 +432,7 @@ export function AskAiPage() {
                 passages. Documents still processing may not appear.
               </p>
             </CardContent>
-          </Card>
+          </MotionCard>
 
           <div className="rounded-xl border border-info/25 bg-info/5 p-4 text-xs leading-relaxed text-muted-foreground">
             <p className="flex items-center gap-1.5 font-medium text-foreground">
@@ -444,32 +440,35 @@ export function AskAiPage() {
               Verify before relying
             </p>
             <p className="mt-1.5">
-              Answers are generated text, not legal advice. The API does not return citation
-              metadata, so open the source document to confirm the quoted terms.
+              Answers are generated text, not legal advice. Document answers show source titles, but
+              not exact passage citations, so open the source file to confirm quoted terms.
             </p>
           </div>
 
-          <Card>
+          <MotionCard interactive={false} delay={0.14}>
             <CardHeader>
               <CardTitle className="text-base">Suggested questions</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-1.5">
               {SUGGESTED_QUESTIONS.map((suggestion) => (
-                <button
+                <motion.button
                   key={suggestion}
                   type="button"
                   disabled={streaming}
                   onClick={() => void runQuery(suggestion)}
                   className="rounded-md px-2 py-1.5 text-left text-xs leading-relaxed text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
+                  whileHover={reduce || streaming ? undefined : { x: 3 }}
+                  whileTap={reduce || streaming ? undefined : { scale: 0.98 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 26 }}
                 >
                   {suggestion}
-                </button>
+                </motion.button>
               ))}
             </CardContent>
-          </Card>
+          </MotionCard>
 
           {user && (
-            <Card>
+            <MotionCard interactive={false} delay={0.2}>
               <CardHeader>
                 <CardTitle className="text-base">Index scope</CardTitle>
               </CardHeader>
@@ -485,7 +484,7 @@ export function AskAiPage() {
                   </Link>
                 </Button>
               </CardContent>
-            </Card>
+            </MotionCard>
           )}
         </aside>
       </div>

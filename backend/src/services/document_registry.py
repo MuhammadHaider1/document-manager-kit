@@ -14,16 +14,23 @@ class DocumentRegistryService:
     async def list_documents(
         db: AsyncSession,
         org_id: uuid.UUID | str,
+        *,
+        status_filter: str | None = None,
+        archived: bool = False,
     ) -> dict[str, Any]:
         organization_id = uuid.UUID(str(org_id))
+        conditions = [
+            Document.organization_id == organization_id,
+            Document.is_archived.is_(archived),
+        ]
+        if status_filter:
+            conditions.append(Document.processing_status == status_filter)
+
         query = (
             select(Document)
-            .where(
-                Document.organization_id == organization_id,
-                Document.is_archived.is_(False),
-            )
+            .where(*conditions)
             .options(selectinload(Document.folder))
-            .order_by(Document.created_at.desc())
+            .order_by(Document.updated_at.desc())
         )
         result = await db.execute(query)
         documents = result.scalars().all()
@@ -43,10 +50,13 @@ class DocumentRegistryService:
             for document in documents
         ]
 
+        scope = "archived" if archived else "active"
+        noun = "document" if len(documents) == 1 else "documents"
+        filter_note = f" with status **{status_filter}**" if status_filter else ""
         return {
             "summary": (
-                f"Found **{len(documents)}** documents in your workspace "
-                f"({statuses.count('completed')} completed, "
+                f"Found **{len(documents)}** {scope} {noun}{filter_note} "
+                f"in your workspace ({statuses.count('completed')} completed, "
                 f"{statuses.count('processing')} processing, "
                 f"{statuses.count('failed')} failed):"
             ),
@@ -57,7 +67,7 @@ class DocumentRegistryService:
     def render_markdown_table(registry_data: dict[str, Any]) -> str:
         documents = registry_data["documents"]
         if not documents:
-            return "No documents found in your organization."
+            return registry_data["summary"].removesuffix(":") + "."
 
         rows = [
             registry_data["summary"],
