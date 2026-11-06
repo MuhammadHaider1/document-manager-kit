@@ -36,9 +36,9 @@ GENERAL_SYSTEM_PROMPT = (
     "knowledge. Never claim the answer came from their documents and never "
     "invent a document, clause or citation. If the question is about their own "
     "files, say you could not find a matching passage and suggest rephrasing "
-    "the question or checking the Documents page. For legal or financial "
-    "questions, keep the answer general and note that it is not professional "
-    "advice."
+    "the question or checking the Documents page. Keep legal and financial "
+    "answers general, but do not add a disclaimer inside the answer because "
+    "the API adds one when appropriate."
 )
 
 GENERAL_LABEL = "**General knowledge** — not from your documents."
@@ -49,6 +49,33 @@ GENERAL_NO_MATCH_LABEL = (
 GENERAL_DISCLAIMER = (
     "This is general information, not legal advice. Verify important details."
 )
+
+LEGAL_OR_FINANCIAL_TERMS = {
+    "agreement",
+    "attorney",
+    "clause",
+    "contract",
+    "court",
+    "damages",
+    "breach",
+    "finance",
+    "financial",
+    "force",
+    "indemnity",
+    "investment",
+    "law",
+    "lawsuit",
+    "legal",
+    "liability",
+    "loan",
+    "majeure",
+    "negligence",
+    "obligation",
+    "regulation",
+    "statute",
+    "tax",
+    "termination",
+}
 
 AnswerMode = Literal["documents", "general", "error"]
 
@@ -270,6 +297,130 @@ class RAGService:
         chunks = list(result.scalars().all())
         return self._select_diverse_chunks(chunks, limit)
 
+    @staticmethod
+    def _normalise_title_text(value: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", value.lower())).strip()
+
+    @classmethod
+    def _title_match_score(cls, query: str, title: str) -> int:
+        """Score a document title without mistaking ordinary prose for a title.
+
+        A user often enters only ``Quiz CS101`` or ``tell me about <title>``.
+        Embeddings for those short strings can be unrelated to the document body,
+        so title matching must happen before the vector relevance gate.
+        """
+        normalized_query = cls._normalise_title_text(query)
+        normalized_title = cls._normalise_title_text(title)
+        if not normalized_query or not normalized_title:
+            return 0
+
+        stripped_query = re.sub(
+            r"^(tell me about|summari[sz]e|give me (a )?(summary of|overview of)|"
+            r"what is in|what s in|check|open|show me)\s+(the\s+)?",
+            "",
+            normalized_query,
+        ).strip()
+        candidates = {normalized_query, stripped_query}
+        title_compact = normalized_title.replace(" ", "")
+
+        for candidate in candidates:
+            if not candidate:
+                continue
+            candidate_compact = candidate.replace(" ", "")
+            if candidate == normalized_title or candidate_compact == title_compact:
+                return 100
+            if len(candidate.split()) >= 2 and (
+                normalized_title.startswith(f"{candidate} ")
+                or title_compact.startswith(candidate_compact)
+            ):
+                return 90
+            if len(normalized_title.split()) >= 2 and (
+                candidate.startswith(f"{normalized_title} ")
+                or candidate_compact.startswith(title_compact)
+            ):
+                return 80
+
+        title_cues = {
+            "about",
+            "document",
+            "file",
+            "my",
+            "our",
+            "quiz",
+            "summary",
+            "summarize",
+            "summarise",
+        }
+        query_terms = set(normalized_query.split())
+        if normalized_title in normalized_query and query_terms & title_cues:
+            return 70
+        if (
+            title_compact in normalized_query.replace(" ", "")
+            and query_terms & title_cues
+        ):
+            return 65
+        return 0
+
+    @classmethod
+    def _title_question(cls, query: str, title: str) -> str:
+        normalized_query = cls._normalise_title_text(query)
+        normalized_title = cls._normalise_title_text(title)
+        stripped_query = re.sub(
+            r"^(tell me about|summari[sz]e|give me (a )?(summary of|overview of)|"
+            r"check|open|show me)\s+(the\s+)?",
+            "",
+            normalized_query,
+        ).strip()
+        if stripped_query.replace(" ", "") == normalized_title.replace(
+            " ", ""
+        ) or normalized_title.startswith(f"{stripped_query} "):
+            return (
+                f'Summarize the document titled "{title}". Describe its main topics '
+                "and the most important details visible in the excerpts."
+            )
+        return query
+
+    async def _title_matched_chunks(
+        self, query: str, org_id: uuid.UUID, limit: int
+    ) -> tuple[List[DocumentChunk], str | None]:
+        """Retrieve chunks directly when the query names a workspace document."""
+        try:
+            documents_result = await self.db_session.execute(
+                select(Document.id, Document.title).where(
+                    Document.organization_id == org_id,
+                    Document.is_archived.is_(False),
+                    Document.processing_status == "completed",
+                )
+            )
+            ranked = [
+                (self._title_match_score(query, row.title), row.id, row.title)
+                for row in documents_result.all()
+            ]
+            best_score = max((score for score, _, _ in ranked), default=0)
+            if best_score <= 0:
+                return [], None
+
+            best_rows = [row for row in ranked if row[0] == best_score]
+            best_title = best_rows[0][2]
+            # Include duplicate uploads with the same normalized title, then
+            # rely on _select_diverse_chunks to remove repeated text.
+            normalized_best = self._normalise_title_text(best_title)
+            document_ids = [
+                document_id
+                for _, document_id, title in ranked
+                if self._normalise_title_text(title) == normalized_best
+            ]
+            chunks_result = await self.db_session.execute(
+                select(DocumentChunk)
+                .where(DocumentChunk.document_id.in_(document_ids))
+                .limit(max(limit * 3, 15))
+            )
+            chunks = list(chunks_result.scalars().all())
+            return self._select_diverse_chunks(chunks, limit), best_title
+        except Exception:
+            logger.exception("Document-title retrieval failed")
+            return [], None
+
     async def _document_titles(
         self, chunks: Sequence[DocumentChunk]
     ) -> dict[uuid.UUID, str]:
@@ -371,25 +522,34 @@ class RAGService:
         history: Sequence[dict[str, str]] | None = None,
     ) -> tuple[str | None, List[DocumentChunk], bool]:
         conversation = self._normalize_history(history)
-        retrieval_query = query
-        if conversation:
-            retrieval_query = "\n".join(
-                [
-                    *(f"{role}: {content}" for role, content in conversation),
-                    f"current question: {query}",
-                ]
-            )
-        similar_chunks = await self.search_similar_chunks(
-            query=retrieval_query,
+        similar_chunks, matched_title = await self._title_matched_chunks(
+            query=query,
             org_id=org_id,
             limit=settings.RAG_MAX_CONTEXT_CHUNKS,
         )
+        answer_query = query
+        if matched_title:
+            answer_query = self._title_question(query, matched_title)
+        else:
+            retrieval_query = query
+            if conversation:
+                retrieval_query = "\n".join(
+                    [
+                        *(f"{role}: {content}" for role, content in conversation),
+                        f"current question: {query}",
+                    ]
+                )
+            similar_chunks = await self.search_similar_chunks(
+                query=retrieval_query,
+                org_id=org_id,
+                limit=settings.RAG_MAX_CONTEXT_CHUNKS,
+            )
         if not similar_chunks:
             return None, [], False
 
         titles = await self._document_titles(similar_chunks)
         is_multiple_choice = self._context_has_multiple_choice(similar_chunks)
-        prompt = self._build_prompt(query, similar_chunks, titles, conversation)
+        prompt = self._build_prompt(answer_query, similar_chunks, titles, conversation)
         if is_multiple_choice:
             prompt += MULTIPLE_CHOICE_INSTRUCTION
         return prompt, similar_chunks, is_multiple_choice
@@ -622,11 +782,19 @@ class RAGService:
         titles = await self._document_titles(chunks)
         return list(dict.fromkeys(titles.values()))
 
+    @staticmethod
+    def _general_disclaimer(query: str) -> str | None:
+        terms = set(re.findall(r"[a-z]+", query.lower()))
+        if terms & LEGAL_OR_FINANCIAL_TERMS:
+            return GENERAL_DISCLAIMER
+        return None
+
     async def answer_chat(
         self,
         query: str,
         org_id: uuid.UUID,
         history: Sequence[dict[str, str]] | None = None,
+        search_documents: bool = True,
     ) -> AnswerResult:
         """Answer in auto mode: documents first, then labelled general knowledge.
 
@@ -635,9 +803,12 @@ class RAGService:
         organization's documents; when no passage clears the gate, the answer
         comes from general knowledge and is explicitly labelled as such.
         """
-        prompt, chunks, is_multiple_choice = await self._prepare_prompt(
-            query, org_id, history
-        )
+        if search_documents:
+            prompt, chunks, is_multiple_choice = await self._prepare_prompt(
+                query, org_id, history
+            )
+        else:
+            prompt, chunks, is_multiple_choice = None, [], False
 
         if prompt and chunks:
             sources = await self._sources_for(chunks)
@@ -690,9 +861,12 @@ class RAGService:
             )
 
         return AnswerResult(
-            answer=f"{GENERAL_NO_MATCH_LABEL}\n\n{general}",
+            answer=(
+                f"{GENERAL_NO_MATCH_LABEL if search_documents else GENERAL_LABEL}"
+                f"\n\n{general}"
+            ),
             mode="general",
-            disclaimer=GENERAL_DISCLAIMER,
+            disclaimer=self._general_disclaimer(query),
         )
 
     async def answer_query(
@@ -736,7 +910,8 @@ class RAGService:
                 return
             prompt = self._build_general_prompt(query, history)
             is_multiple_choice = False
-            suffix = f"\n\n{GENERAL_DISCLAIMER}"
+            disclaimer = self._general_disclaimer(query)
+            suffix = f"\n\n{disclaimer}" if disclaimer else ""
             yield f"{GENERAL_NO_MATCH_LABEL}\n\n"
 
         try:

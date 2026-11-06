@@ -78,7 +78,7 @@ docuflow/
 │   ├── migrations/             # legacy Alembic revisions (see note below)
 │   ├── scripts/                # manual RAG utilities
 │   ├── src/                    # API, models, repositories, services, tasks
-│   ├── tests/                  # pytest suite (160 tests, mocked DB session)
+│   ├── tests/                  # pytest suite (179 tests, mocked DB session)
 │   └── README.md               # backend deep dive
 ├── frontend/                   # React 18 + Vite + TypeScript SPA
 │   ├── src/                    # features, components, API client, stores
@@ -223,7 +223,8 @@ See [`backend/.env.example`](./backend/.env.example) and
 2. Content questions are embedded with `all-MiniLM-L6-v2` (384 dimensions), and
    pgvector returns the nearest chunks **scoped to the active organization**.
 3. Retrieval keeps a wider candidate set, caps chunks per document and removes
-   duplicates from repeated uploads before building the prompt.
+   duplicates from repeated uploads before building the prompt. Bare or prefixed
+   document titles are resolved directly before semantic retrieval.
 4. Document questions use OpenRouter with the retrieved excerpts. Responses
    include source document titles, and short conversation history resolves follow-ups.
 5. Chunks below `RAG_MIN_SIMILARITY` are ignored. If no relevant passage is found,

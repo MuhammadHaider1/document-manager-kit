@@ -77,6 +77,7 @@ async def chat_endpoint(
         query=query,
         org_id=x_organization_id,
         history=history if intent is QueryType.FOLLOW_UP else None,
+        search_documents=intent is not QueryType.GENERAL_KNOWLEDGE,
     )
 
     response_type = {

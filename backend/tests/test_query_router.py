@@ -40,6 +40,10 @@ class FakeLLMClient:
         "document register",
         "show failed documents",
         "documents still processing",
+        "tell me availabe documents in my organization",
+        "list of documents",
+        "check my documents",
+        "what documents do I have",
     ],
 )
 async def test_registry_regex_fast_path_does_not_call_llm(query):
@@ -112,6 +116,17 @@ async def test_natural_follow_ups_use_conversation_history(query):
     )
 
     assert result is QueryType.FOLLOW_UP
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["hi", "Hello there", "good evening"])
+async def test_greetings_route_directly_to_general_knowledge(query):
+    client = FakeLLMClient("DOCUMENT_SEARCH")
+
+    result = await QueryRouter.route_query(query, llm_client=client)
+
+    assert result is QueryType.GENERAL_KNOWLEDGE
     assert client.calls == []
 
 

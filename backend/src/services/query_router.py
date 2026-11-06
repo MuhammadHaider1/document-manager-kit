@@ -53,6 +53,10 @@ class QueryRouter:
     REGISTRY_PATTERNS: ClassVar[List[str]] = [
         # The bare forms users actually type: "documents", "all docs", etc.
         r"^(all\s+)?(my\s+|our\s+|the\s+)?(documents?|docs?|files?)$",
+        r"^(a\s+)?list\s+of\s+(all\s+)?((my|our|the)\s+)?(documents?|docs?|files?)$",
+        r"^(check|show|list|view)\s+(all\s+)?(my|our)\s+(documents?|docs?|files?)$",
+        r"^(tell me|show me|give me)\s+(the\s+)?(available|availabe|current)\s+(documents?|docs?|files?)(\s+in\s+(my|our|the)\s+(organization|workspace))?$",
+        r"^(what|which)\s+(documents?|docs?|files?)\s+(do|can)\s+(i|we)\s+(have|access|see)$",
         r"^(all\s+)?(my\s+|our\s+)?(documents?|docs?|files?)\s+(list|register)$",
         # List requests must end at the file noun so "show documents that
         # mention termination" stays a content search.
@@ -75,6 +79,11 @@ class QueryRouter:
         r"^(how|when|where|why)\b.{0,30}\b(it|that|this|they|them|those|these)\b",
         r"^(and|also|then|so)\b",
         r"^(more|details|summary)$",
+    ]
+
+    GENERAL_PATTERNS: ClassVar[List[str]] = [
+        r"^(hi|hello|hey|hiya|greetings)(\s+(there|docuflow))?$",
+        r"^good\s+(morning|afternoon|evening)$",
     ]
 
     @staticmethod
@@ -109,6 +118,9 @@ class QueryRouter:
         for pattern in cls.REGISTRY_PATTERNS:
             if re.search(pattern, clean_query):
                 return QueryType.DOCUMENT_REGISTRY
+
+        if any(re.search(pattern, clean_query) for pattern in cls.GENERAL_PATTERNS):
+            return QueryType.GENERAL_KNOWLEDGE
 
         if llm_client is not None:
             return await cls._llm_classify_intent(query, llm_client)

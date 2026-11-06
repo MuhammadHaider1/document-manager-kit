@@ -6,6 +6,7 @@ from sqlalchemy.dialects import postgresql
 
 from src.core.config import settings
 from src.services.rag_service import (
+    GENERAL_LABEL,
     GENERAL_NO_MATCH_LABEL,
     MULTIPLE_CHOICE_INSTRUCTION,
     NO_CONTEXT_MESSAGE,
@@ -129,6 +130,30 @@ def test_diverse_chunks_deduplicate_same_text():
     assert [chunk.chunk_text for chunk in selected] == ["same text", "unique text"]
 
 
+@pytest.mark.parametrize(
+    ("query", "title"),
+    [
+        ("Quiz CS101", "Quiz CS101 1"),
+        ("Quiz CS101 1", "Quiz CS101 1"),
+        ("Tell me about MuhammadHaider CV", "MuhammadHaider Cv"),
+        ("Muhammad Haider CV", "MuhammadHaider Cv"),
+        ("What questions are in Quiz CS101 1?", "Quiz CS101 1"),
+    ],
+)
+def test_document_title_queries_are_detected(query, title):
+    assert RAGService._title_match_score(query, title) > 0
+
+
+def test_ordinary_prose_is_not_mistaken_for_a_document_title():
+    assert RAGService._title_match_score("How do I write a resume?", "Resume") == 0
+
+
+def test_bare_title_is_rewritten_as_a_summary_request():
+    question = RAGService._title_question("Quiz CS101", "Quiz CS101 1")
+
+    assert 'Summarize the document titled "Quiz CS101 1"' in question
+
+
 @pytest.mark.asyncio
 async def test_document_indexing_replaces_existing_chunks_before_insert():
     class EmbeddingStub:
@@ -213,7 +238,11 @@ async def test_prepare_prompt_does_not_fetch_unscored_chunks():
     async def no_relevant_chunks(**kwargs):
         return []
 
+    async def no_title_match(**kwargs):
+        return [], None
+
     service.search_similar_chunks = no_relevant_chunks
+    service._title_matched_chunks = no_title_match
 
     prompt, chunks, is_multiple_choice = await service._prepare_prompt(
         "question", uuid.uuid4()
@@ -239,7 +268,11 @@ async def test_prepare_prompt_uses_history_for_followup_retrieval_and_answer():
     async def document_titles(chunks):
         return {}
 
+    async def no_title_match(**kwargs):
+        return [], None
+
     service.search_similar_chunks = search_similar_chunks
+    service._title_matched_chunks = no_title_match
     service._document_titles = document_titles
     history = [
         {"role": "user", "content": "What does the contract say about termination?"},
@@ -257,6 +290,37 @@ async def test_prepare_prompt_uses_history_for_followup_retrieval_and_answer():
     assert "user: What does the contract say about termination?" in prompt
     assert "assistant: It specifies a notice period." in prompt
     assert "Question: How long is it?" in prompt
+
+
+@pytest.mark.asyncio
+async def test_prepare_prompt_uses_title_match_before_vector_search():
+    service = object.__new__(RAGService)
+    document_chunk = SimpleNamespace(
+        chunk_text="Question 1: Which component stores data?",
+        document_id=uuid.uuid4(),
+    )
+
+    async def title_match(**kwargs):
+        return [document_chunk], "Quiz CS101 1"
+
+    async def vector_search(**kwargs):
+        raise AssertionError("vector search should not run for a title match")
+
+    async def document_titles(chunks):
+        return {document_chunk.document_id: "Quiz CS101 1"}
+
+    service._title_matched_chunks = title_match
+    service.search_similar_chunks = vector_search
+    service._document_titles = document_titles
+
+    prompt, chunks, is_multiple_choice = await service._prepare_prompt(
+        "Quiz CS101", uuid.uuid4()
+    )
+
+    assert chunks == [document_chunk]
+    assert is_multiple_choice is False
+    assert 'Summarize the document titled "Quiz CS101 1"' in prompt
+    assert "[Source 1: Quiz CS101 1]" in prompt
 
 
 def test_normalize_history_limits_turns_and_ignores_invalid_roles(monkeypatch):
@@ -294,8 +358,29 @@ async def test_answer_chat_labels_general_fallback_when_no_chunks(monkeypatch):
     assert result.mode == "general"
     assert result.answer.startswith(GENERAL_NO_MATCH_LABEL)
     assert "speeds up lookups" in result.answer
-    assert result.disclaimer
+    assert result.disclaimer is None
     assert result.sources == []
+
+
+@pytest.mark.asyncio
+async def test_direct_general_answer_uses_short_label_and_contextual_disclaimer():
+    service = object.__new__(RAGService)
+    service.api_key = "test-key"
+
+    async def complete(prompt, reasoning_enabled=False):
+        return "Hello! How can I help?"
+
+    service._complete = complete
+
+    greeting = await service.answer_chat("hi", uuid.uuid4(), search_documents=False)
+    legal = await service.answer_chat(
+        "What is contract liability?", uuid.uuid4(), search_documents=False
+    )
+
+    assert greeting.answer.startswith(GENERAL_LABEL)
+    assert greeting.disclaimer is None
+    assert legal.disclaimer is not None
+    assert "not legal advice" in legal.disclaimer
 
 
 @pytest.mark.asyncio
@@ -361,7 +446,7 @@ async def test_answer_chat_uses_general_history_for_follow_up(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stream_general_fallback_keeps_label_and_disclaimer():
+async def test_stream_general_fallback_does_not_add_irrelevant_legal_disclaimer():
     service = object.__new__(RAGService)
     service.api_key = "test-key"
 
@@ -388,7 +473,7 @@ async def test_stream_general_fallback_keeps_label_and_disclaimer():
 
     assert answer.startswith(GENERAL_NO_MATCH_LABEL)
     assert "Paris is the capital" in answer
-    assert "not legal advice" in answer
+    assert "not legal advice" not in answer
 
 
 @pytest.mark.asyncio

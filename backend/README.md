@@ -154,7 +154,8 @@ The chat endpoint handles three modes:
 - **Registry questions** such as “documents”, “all documents”, “which files failed”
   and “archived documents” are answered directly from the organization-scoped register.
 - **Document questions and follow-ups** pass through the retrieval gate and return
-  source document titles. A bounded history resolves natural follow-up references.
+  source document titles. Exact and partial document-title queries are resolved before
+  vector search, and a bounded history handles natural follow-up references.
 - **General questions** receive clearly labelled general knowledge when no passage
   clears the gate; they are never presented as document-backed.
 
@@ -329,7 +330,7 @@ backend/
 │   ├── services/                 # business logic, RAG, embedding, storage
 │   ├── tasks/                    # Celery app + document pipeline
 │   └── utils/chunking.py         # sliding-window splitter
-└── tests/                        # pytest suite, 160 tests (statement-aware fake DB)
+└── tests/                        # pytest suite, 179 tests (statement-aware fake DB)
 ```
 
 ---
@@ -439,7 +440,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 ## Testing & CI
 
 ```bash
-pytest              # 160 tests
+pytest              # 179 tests
 ruff check src/ tests/ scripts/
 ruff format --check src/ tests/ scripts/
 ```

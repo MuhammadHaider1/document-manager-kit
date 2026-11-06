@@ -23,7 +23,17 @@ async def test_chat_rejects_empty_query(auth_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("query", ["List all documents", "All Documents", "documents"])
+@pytest.mark.parametrize(
+    "query",
+    [
+        "List all documents",
+        "All Documents",
+        "documents",
+        "tell me availabe documents in my organization",
+        "list of documents",
+        "check my documents",
+    ],
+)
 async def test_chat_registry_intent_returns_markdown_table(
     auth_client: AsyncClient,
     query: str,
@@ -146,7 +156,6 @@ async def test_chat_general_answer_is_labelled(
         return_value=AnswerResult(
             answer="**General knowledge** — not from your documents.\n\nGeneral answer",
             mode="general",
-            disclaimer="This is general information, not legal advice.",
         )
     )
     monkeypatch.setattr(RAGService, "answer_chat", answer_chat)
@@ -160,8 +169,9 @@ async def test_chat_general_answer_is_labelled(
     body = response.json()
     assert body["type"] == "general_answer"
     assert body["answer"].startswith("**General knowledge**")
-    assert body["disclaimer"] == "This is general information, not legal advice."
+    assert "disclaimer" not in body
     answer_chat.assert_awaited_once()
+    assert answer_chat.await_args.kwargs["search_documents"] is False
 
 
 @pytest.mark.asyncio
