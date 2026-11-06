@@ -231,29 +231,55 @@ export function LandingPage() {
               {STEPS.map((step, index) => (
                 <motion.li
                   key={step.step}
-                  className="surface relative p-6"
+                  className="surface group relative isolate overflow-hidden p-6 transition-[border-color,box-shadow] duration-500 hover:border-accent/40 hover:shadow-raised"
                   initial={reduce ? false : { opacity: 0, y: 22 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, amount: 0.25 }}
                   transition={{ duration: 0.55, delay: index * 0.08, ease: EASE }}
-                  whileHover={reduce ? undefined : { y: -5, scale: 1.01 }}
+                  style={
+                    reduce
+                      ? undefined
+                      : { transformPerspective: 1200, transformStyle: 'preserve-3d' }
+                  }
+                  whileHover={
+                    reduce
+                      ? undefined
+                      : {
+                          y: -8,
+                          scale: 1.015,
+                          rotateX: 1.5,
+                          rotateY: index === 1 ? 0 : index === 0 ? -1.8 : 1.8,
+                        }
+                  }
                 >
-                  <div className="flex items-center justify-between">
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_0%,hsl(var(--accent)/0.16),transparent_55%)] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-x-0 top-0 h-px origin-left scale-x-0 bg-gradient-to-r from-transparent via-accent to-transparent transition-transform duration-700 ease-out-soft group-hover:scale-x-100 motion-reduce:transition-none"
+                  />
+                  <div className="flex items-center justify-between [transform:translateZ(28px)]">
                     <motion.span
-                      className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft text-accent"
+                      className="flex h-10 w-10 items-center justify-center rounded-lg border border-accent/15 bg-accent-soft text-accent shadow-sm transition-shadow group-hover:shadow-[0_10px_30px_-12px_hsl(var(--accent)/0.7)]"
                       whileHover={reduce ? undefined : { rotate: -6, scale: 1.08 }}
                       transition={{ type: 'spring', stiffness: 320, damping: 18 }}
                     >
                       <step.icon className="h-4.5 w-4.5" aria-hidden="true" />
                     </motion.span>
-                    <span className="font-display text-2xl text-muted-foreground/35">
+                    <span className="font-display text-2xl text-muted-foreground/35 transition-[color,transform] duration-500 group-hover:-translate-y-1 group-hover:text-accent/70">
                       {step.step}
                     </span>
                   </div>
-                  <h3 className="mt-5 font-display text-lg">{step.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {step.description}
-                  </p>
+                  <div className="[transform:translateZ(18px)]">
+                    <h3 className="mt-5 font-display text-lg transition-colors group-hover:text-accent">
+                      {step.title}
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                      {step.description}
+                    </p>
+                  </div>
                 </motion.li>
               ))}
             </ol>
@@ -284,24 +310,50 @@ export function LandingPage() {
               {FEATURES.map((feature, index) => (
                 <motion.article
                   key={feature.title}
-                  className="surface group p-6 transition-shadow hover:shadow-raised"
+                  className="surface group relative isolate overflow-hidden p-6 transition-[border-color,box-shadow] duration-500 hover:border-accent/40 hover:shadow-raised"
                   initial={reduce ? false : { opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, amount: 0.2 }}
                   transition={{ duration: 0.5, delay: (index % 3) * 0.07, ease: EASE }}
-                  whileHover={reduce ? undefined : { y: -6, scale: 1.012 }}
+                  style={
+                    reduce
+                      ? undefined
+                      : { transformPerspective: 1100, transformStyle: 'preserve-3d' }
+                  }
+                  whileHover={
+                    reduce
+                      ? undefined
+                      : {
+                          y: -8,
+                          scale: 1.015,
+                          rotateX: -1.5,
+                          rotateY: ((index % 3) - 1) * 1.6,
+                        }
+                  }
                 >
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_100%_0%,hsl(var(--accent)/0.14),transparent_52%)] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="absolute -left-1/2 top-0 h-px w-1/2 bg-gradient-to-r from-transparent via-accent to-transparent transition-transform duration-700 group-hover:translate-x-[300%] motion-reduce:transition-none"
+                  />
                   <motion.span
-                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-background text-accent"
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 bg-background text-accent shadow-sm transition-[border-color,box-shadow] duration-300 group-hover:border-accent/35 group-hover:shadow-[0_10px_30px_-12px_hsl(var(--accent)/0.65)] [transform:translateZ(32px)]"
                     whileHover={reduce ? undefined : { rotate: 8, scale: 1.1 }}
                     transition={{ type: 'spring', stiffness: 340, damping: 18 }}
                   >
                     <feature.icon className="h-4 w-4" aria-hidden="true" />
                   </motion.span>
-                  <h3 className="mt-4 font-display text-lg">{feature.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                    {feature.description}
-                  </p>
+                  <div className="[transform:translateZ(20px)]">
+                    <h3 className="mt-4 font-display text-lg transition-colors group-hover:text-accent">
+                      {feature.title}
+                    </h3>
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                      {feature.description}
+                    </p>
+                  </div>
                 </motion.article>
               ))}
             </div>
