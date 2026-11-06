@@ -43,8 +43,12 @@ export function TiltCard({ children, className, max = 4.5 }: TiltCardProps) {
       className={cn(className)}
       onPointerMove={onPointerMove}
       onPointerLeave={reset}
-      style={reduce ? undefined : { rotateX, rotateY, transformPerspective: 1400 }}
-      whileHover={reduce ? undefined : { scale: 1.006 }}
+      style={
+        reduce
+          ? { transformStyle: 'preserve-3d' }
+          : { rotateX, rotateY, transformPerspective: 1400, transformStyle: 'preserve-3d' }
+      }
+      whileHover={reduce ? undefined : { scale: 1.012 }}
       transition={{ type: 'spring', stiffness: 220, damping: 24 }}
     >
       {children}

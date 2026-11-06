@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EASE, Reveal } from '@/components/motion/Reveal'
 import { TextReveal } from '@/components/motion/TextReveal'
+import { TiltCard } from '@/components/motion/TiltCard'
 import { cn } from '@/lib/utils'
 
 const TIERS = [
@@ -74,57 +75,107 @@ export function PricingSection() {
           </p>
         </Reveal>
 
-        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+        <div className="mt-12 grid items-stretch gap-6 lg:grid-cols-3 lg:py-5">
           {TIERS.map((tier, index) => (
-            <motion.div
+            <div
               key={tier.name}
               className={cn(
-                'relative flex flex-col rounded-xl border bg-card p-6 shadow-card',
-                tier.highlight ? 'border-accent/45 ring-1 ring-accent/20' : 'border-border/80'
+                'relative h-full transition-transform duration-500 ease-out-soft',
+                tier.highlight && 'lg:z-10 lg:scale-[1.045]'
               )}
-              initial={reduce ? false : { opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.2 }}
-              transition={{ duration: 0.55, delay: index * 0.09, ease: EASE }}
-              whileHover={reduce ? undefined : { y: -7, scale: 1.012 }}
             >
-              {tier.highlight && (
-                <Badge tone="gold" className="absolute -top-2.5 left-6">
-                  Most chosen
-                </Badge>
-              )}
-              <div className="space-y-1.5">
-                <h3 className="font-display text-xl">{tier.name}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">{tier.description}</p>
-              </div>
-
-              <div className="mt-6 flex items-baseline gap-1.5">
-                <span className="font-display text-4xl tracking-tight">{tier.price}</span>
-                <span className="text-xs text-muted-foreground">{tier.cadence}</span>
-              </div>
-
-              <ul className="mt-6 flex-1 space-y-2.5">
-                {tier.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2 text-sm">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
-                    <span className="text-foreground/85">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <Button
-                asChild
-                className="mt-7"
-                variant={tier.highlight ? 'accent' : 'outline'}
-                size="lg"
+              <motion.div
+                className="h-full"
+                initial={reduce ? false : { opacity: 0, y: 28 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.2 }}
+                transition={{ duration: 0.6, delay: index * 0.1, ease: EASE }}
               >
-                {tier.cta === 'Book a demo' ? (
-                  <a href="mailto:sales@docuflow.app?subject=Docuflow%20demo">Book a demo</a>
-                ) : (
-                  <Link to="/register">{tier.cta}</Link>
-                )}
-              </Button>
-            </motion.div>
+                <motion.div
+                  className="h-full"
+                  animate={tier.highlight && !reduce ? { y: [0, -5, 0] } : undefined}
+                  transition={
+                    tier.highlight && !reduce
+                      ? { duration: 5, repeat: Infinity, ease: 'easeInOut' }
+                      : undefined
+                  }
+                >
+                  <TiltCard className="h-full" max={tier.highlight ? 6 : 4.5}>
+                    <article
+                      className={cn(
+                        'group relative isolate flex h-full flex-col overflow-visible rounded-xl border bg-card p-6 shadow-card transition-[border-color,box-shadow] duration-500 [transform-style:preserve-3d]',
+                        tier.highlight
+                          ? 'border-accent/55 shadow-raised ring-1 ring-accent/25 hover:border-accent/80 hover:shadow-[0_30px_80px_-30px_hsl(var(--accent)/0.5)]'
+                          : 'border-border/80 hover:border-accent/40 hover:shadow-raised'
+                      )}
+                    >
+                      <div
+                        aria-hidden="true"
+                        className={cn(
+                          'pointer-events-none absolute inset-0 -z-10 rounded-[inherit] bg-[radial-gradient(circle_at_50%_0%,hsl(var(--accent)/0.13),transparent_52%)] opacity-0 transition-opacity duration-500 group-hover:opacity-100 [transform:translateZ(2px)]',
+                          tier.highlight && 'opacity-100'
+                        )}
+                      />
+                      {tier.highlight && (
+                        <>
+                          <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-x-8 -bottom-5 -z-20 h-16 rounded-full bg-accent/25 blur-2xl [transform:translateZ(-30px)]"
+                          />
+                          <Badge
+                            tone="gold"
+                            className="absolute -top-2.5 left-6 shadow-sm [transform:translateZ(64px)]"
+                          >
+                            Most chosen
+                          </Badge>
+                        </>
+                      )}
+
+                      <div className="space-y-1.5 [transform:translateZ(34px)]">
+                        <h3 className="font-display text-xl">{tier.name}</h3>
+                        <p className="text-sm leading-relaxed text-muted-foreground">
+                          {tier.description}
+                        </p>
+                      </div>
+
+                      <div className="mt-6 flex items-baseline gap-1.5 [transform:translateZ(46px)]">
+                        <span className="font-display text-4xl tracking-tight">{tier.price}</span>
+                        <span className="text-xs text-muted-foreground">{tier.cadence}</span>
+                      </div>
+
+                      <ul className="mt-6 flex-1 space-y-2.5 [transform:translateZ(26px)]">
+                        {tier.features.map((feature) => (
+                          <li key={feature} className="flex items-start gap-2 text-sm">
+                            <Check
+                              className="mt-0.5 h-4 w-4 shrink-0 text-accent"
+                              aria-hidden="true"
+                            />
+                            <span className="text-foreground/85">{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+
+                      <div className="mt-7 [transform:translateZ(40px)]">
+                        <Button
+                          asChild
+                          className="w-full"
+                          variant={tier.highlight ? 'accent' : 'outline'}
+                          size="lg"
+                        >
+                          {tier.cta === 'Book a demo' ? (
+                            <a href="mailto:sales@docuflow.app?subject=Docuflow%20demo">
+                              Book a demo
+                            </a>
+                          ) : (
+                            <Link to="/register">{tier.cta}</Link>
+                          )}
+                        </Button>
+                      </div>
+                    </article>
+                  </TiltCard>
+                </motion.div>
+              </motion.div>
+            </div>
           ))}
         </div>
 
