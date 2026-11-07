@@ -220,7 +220,7 @@ export function AskAiPage() {
       />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
-        <Card className="flex h-[calc(100dvh-19rem)] min-h-[26rem] flex-col overflow-hidden">
+        <Card className="flex h-[calc(100dvh-12rem)] min-h-[32rem] flex-col overflow-hidden sm:min-h-[36rem] xl:h-[calc(150dvh-28.5rem)] xl:min-h-[39rem] xl:max-h-[70rem]">
           <div
             ref={scrollRef}
             onScroll={(event) => {
