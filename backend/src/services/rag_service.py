@@ -398,6 +398,15 @@ class RAGService:
             and query_terms & title_cues
         ):
             return 65
+
+        # CV/resume titles commonly contain a person's compacted name while
+        # natural questions use spaces and omit the generic file suffix.
+        generic_suffixes = {"cv", "resume", "document", "doc", "pdf"}
+        title_base = "".join(
+            term for term in normalized_title.split() if term not in generic_suffixes
+        )
+        if len(title_base) >= 8 and title_base in normalized_query.replace(" ", ""):
+            return 75
         return 0
 
     @classmethod
@@ -418,6 +427,59 @@ class RAGService:
                 "and the most important details visible in the excerpts."
             )
         return query
+
+    @classmethod
+    def _rerank_title_chunks(
+        cls, query: str, chunks: Sequence[DocumentChunk]
+    ) -> List[DocumentChunk]:
+        """Blend lexical intent signals into title-scoped vector results."""
+        normalized_query = cls._normalise_title_text(query)
+        stop_words = {
+            "about",
+            "from",
+            "give",
+            "haider",
+            "muhammad",
+            "muhammed",
+            "tell",
+            "that",
+            "the",
+            "this",
+            "what",
+            "which",
+            "with",
+        }
+        terms = {
+            term
+            for term in normalized_query.split()
+            if len(term) >= 4 and term not in stop_words
+        }
+        tech_intent = bool(
+            re.search(
+                r"\b(tech stack|technical stack|technical skills|technologies|skills)\b",
+                normalized_query,
+            )
+        )
+        tech_sections = (
+            "technical skills",
+            "ai & llm",
+            "languages",
+            "backend & apis",
+            "databases",
+            "devops & cloud",
+            "frontend & tools",
+        )
+
+        def score(chunk: DocumentChunk) -> int:
+            text = (chunk.chunk_text or "").lower()
+            value = sum(2 for term in terms if term in text)
+            if tech_intent:
+                value += sum(5 for heading in tech_sections if heading in text)
+                if "technical skills" in text:
+                    value += 12
+            return value
+
+        return sorted(chunks, key=score, reverse=True)
 
     async def _title_matched_chunks(
         self, query: str, org_id: uuid.UUID, limit: int
@@ -449,12 +511,39 @@ class RAGService:
                 for _, document_id, title in ranked
                 if self._normalise_title_text(title) == normalized_best
             ]
-            chunks_result = await self.db_session.execute(
-                select(DocumentChunk)
-                .where(DocumentChunk.document_id.in_(document_ids))
-                .limit(max(limit * 3, 15))
-            )
-            chunks = list(chunks_result.scalars().all())
+            chunks: List[DocumentChunk] = []
+            is_summary_request = self._title_question(query, best_title) != query
+            if not is_summary_request and self.embedding_service is not None:
+                try:
+                    loop = asyncio.get_running_loop()
+                    query_embedding = await loop.run_in_executor(
+                        None, self.embedding_service.get_embeddings, query
+                    )
+                    distance = DocumentChunk.embedding.cosine_distance(query_embedding)
+                    chunks_result = await self.db_session.execute(
+                        select(DocumentChunk)
+                        .where(
+                            DocumentChunk.document_id.in_(document_ids),
+                            DocumentChunk.embedding.isnot(None),
+                        )
+                        .order_by(distance)
+                        .limit(max(limit * 3, 15))
+                    )
+                    chunks = list(chunks_result.scalars().all())
+                except Exception:
+                    logger.exception(
+                        "Title-scoped vector ranking failed; using document chunks"
+                    )
+
+            if not chunks:
+                chunks_result = await self.db_session.execute(
+                    select(DocumentChunk)
+                    .where(DocumentChunk.document_id.in_(document_ids))
+                    .limit(max(limit * 3, 15))
+                )
+                chunks = list(chunks_result.scalars().all())
+            if not is_summary_request:
+                chunks = self._rerank_title_chunks(query, chunks)
             return self._select_diverse_chunks(chunks, limit), best_title
         except Exception:
             logger.exception("Document-title retrieval failed")

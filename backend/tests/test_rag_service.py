@@ -215,6 +215,7 @@ def test_diverse_chunks_deduplicate_same_text():
         ("Quiz CS101 1", "Quiz CS101 1"),
         ("Tell me about MuhammadHaider CV", "MuhammadHaider Cv"),
         ("Muhammad Haider CV", "MuhammadHaider Cv"),
+        ("What is the tech stack of Muhammad Haider?", "MuhammadHaider Cv"),
         ("What questions are in Quiz CS101 1?", "Quiz CS101 1"),
     ],
 )
@@ -230,6 +231,24 @@ def test_bare_title_is_rewritten_as_a_summary_request():
     question = RAGService._title_question("Quiz CS101", "Quiz CS101 1")
 
     assert 'Summarize the document titled "Quiz CS101 1"' in question
+
+
+def test_title_scoped_tech_query_prioritizes_technical_skills_chunks():
+    chunks = [
+        chunk("AI project built with Python and FastAPI."),
+        chunk("EDUCATION Bachelor of Science in Computer Science."),
+        chunk(
+            "TECHNICAL SKILLS\nLanguages Python, JavaScript\n"
+            "Backend & APIs FastAPI, Django\nDatabases PostgreSQL, MongoDB\n"
+            "DevOps & Cloud Azure, Docker\nFrontend & Tools React, Tailwind CSS"
+        ),
+    ]
+
+    ranked = RAGService._rerank_title_chunks(
+        "what is tech stack of Muhammad Haider", chunks
+    )
+
+    assert ranked[0].chunk_text.startswith("TECHNICAL SKILLS")
 
 
 @pytest.mark.asyncio

@@ -54,6 +54,7 @@ class QueryRouter:
         # The bare forms users actually type: "documents", "all docs", etc.
         r"^(all\s+)?(my\s+|our\s+|the\s+)?(documents?|docs?|files?)$",
         r"^(a\s+)?list\s+of\s+(all\s+)?((my|our|the)\s+)?(documents?|docs?|files?)$",
+        r"^(give me|show me|tell me)\s+(a\s+|the\s+)?list\s+of\s+(all\s+)?((my|our|the)\s+)?(documents?|docs?|files?)$",
         r"^(check|show|list|view)\s+(all\s+)?(my|our)\s+(documents?|docs?|files?)$",
         r"^(tell me|show me|give me)\s+(the\s+)?(available|availabe|current)\s+(documents?|docs?|files?)(\s+in\s+(my|our|the)\s+(organization|workspace))?$",
         r"^(what|which)\s+(documents?|docs?|files?)\s+(do|can)\s+(i|we)\s+(have|access|see)$",

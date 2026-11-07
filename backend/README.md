@@ -332,7 +332,7 @@ backend/
 │   ├── services/                 # business logic, RAG, embedding, storage
 │   ├── tasks/                    # Celery app + document pipeline
 │   └── utils/chunking.py         # sliding-window splitter
-└── tests/                        # pytest suite, 185 tests (statement-aware fake DB)
+└── tests/                        # pytest suite, 190 tests (statement-aware fake DB)
 ```
 
 ---
@@ -442,7 +442,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 ## Testing & CI
 
 ```bash
-pytest              # 185 tests
+pytest              # 190 tests
 ruff check src/ tests/ scripts/
 ruff format --check src/ tests/ scripts/
 ```

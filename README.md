@@ -78,7 +78,7 @@ docuflow/
 │   ├── migrations/             # legacy Alembic revisions (see note below)
 │   ├── scripts/                # manual RAG utilities
 │   ├── src/                    # API, models, repositories, services, tasks
-│   ├── tests/                  # pytest suite (185 tests, mocked DB session)
+│   ├── tests/                  # pytest suite (190 tests, mocked DB session)
 │   └── README.md               # backend deep dive
 ├── frontend/                   # React 18 + Vite + TypeScript SPA
 │   ├── src/                    # features, components, API client, stores

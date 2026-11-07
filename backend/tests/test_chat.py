@@ -31,6 +31,7 @@ async def test_chat_rejects_empty_query(auth_client: AsyncClient):
         "documents",
         "tell me availabe documents in my organization",
         "list of documents",
+        "give me list of my documents",
         "check my documents",
     ],
 )

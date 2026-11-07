@@ -42,6 +42,8 @@ class FakeLLMClient:
         "documents still processing",
         "tell me availabe documents in my organization",
         "list of documents",
+        "give me list of my documents",
+        "give me a list of my documents",
         "check my documents",
         "what documents do I have",
     ],
