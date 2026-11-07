@@ -78,7 +78,7 @@ docuflow/
 │   ├── migrations/             # legacy Alembic revisions (see note below)
 │   ├── scripts/                # manual RAG utilities
 │   ├── src/                    # API, models, repositories, services, tasks
-│   ├── tests/                  # pytest suite (179 tests, mocked DB session)
+│   ├── tests/                  # pytest suite (185 tests, mocked DB session)
 │   └── README.md               # backend deep dive
 ├── frontend/                   # React 18 + Vite + TypeScript SPA
 │   ├── src/                    # features, components, API client, stores
@@ -137,7 +137,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 
 cp .env.example .env
-# Edit .env: set SECRET_KEY and OPENROUTER_API_KEY.
+# Edit .env: set SECRET_KEY and GEMINI_API_KEY (OpenRouter is the fallback).
 # Generate a signing key with: openssl rand -hex 32
 
 docker compose up -d               # PostgreSQL/pgvector, Redis, MinIO
@@ -199,9 +199,10 @@ Copy the example files and fill in your own values. **Never commit real secrets.
 | `SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
 | `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME` | PostgreSQL connection |
 | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET_NAME` | Object storage |
-| `OPENROUTER_API_KEY` | Enables RAG answer generation |
-| `OPENROUTER_MODEL` | Model id; defaults to `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` |
-| `OPENROUTER_FALLBACK_MODEL` | Optional server-side fallback model |
+| `GEMINI_API_KEY` | Enables the primary Gemini answer provider |
+| `GEMINI_MODEL` | Primary model; defaults to `gemini-3.5-flash-lite` |
+| `OPENROUTER_API_KEY` | Enables the fallback model pool |
+| `OPENROUTER_MODELS` | Comma-separated high-context fallback chain |
 | `RAG_MIN_SIMILARITY` | Minimum cosine similarity for a document passage (default `0.34`) |
 | `RAG_MAX_CONTEXT_CHUNKS` | Maximum document chunks sent to the model (default `5`) |
 | `RAG_HISTORY_TURNS` | Conversation turns kept for follow-ups (default `8`) |
@@ -225,8 +226,9 @@ See [`backend/.env.example`](./backend/.env.example) and
 3. Retrieval keeps a wider candidate set, caps chunks per document and removes
    duplicates from repeated uploads before building the prompt. Bare or prefixed
    document titles are resolved directly before semantic retrieval.
-4. Document questions use OpenRouter with the retrieved excerpts. Responses
-   include source document titles, and short conversation history resolves follow-ups.
+4. Document questions use Gemini 3.5 Flash-Lite first, then a high-context
+   OpenRouter fallback chain. Responses include source document titles, and short
+   conversation history resolves follow-ups.
 5. Chunks below `RAG_MIN_SIMILARITY` are ignored. If no relevant passage is found,
    the assistant gives a clearly labelled general-knowledge answer with a disclaimer.
 6. If the context contains a complete multiple-choice item but no answer key, the
@@ -235,7 +237,7 @@ See [`backend/.env.example`](./backend/.env.example) and
 7. Legacy `POST /api/v1/query` and `POST /api/v1/query-stream` endpoints remain
    available; the SPA uses `/chat/` for typed responses and registry routing.
 
-The OpenRouter key is read from the backend environment and is never logged,
+Provider keys are read from the backend environment and are never logged,
 returned to the browser or committed.
 
 ---

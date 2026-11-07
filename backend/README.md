@@ -11,7 +11,7 @@ register and receive clearly labelled general knowledge when no passage matches.
 
 Upload a document → a Celery worker extracts the text → chunks it → generates 384-dimensional
 embeddings → stores them in **pgvector**. `POST /chat/` routes registry questions to
-PostgreSQL and uses relevance-gated cosine search plus OpenRouter for other questions.
+PostgreSQL and uses relevance-gated cosine search plus Gemini/OpenRouter for other questions.
 
 > **Solo project** — architecture, backend, RBAC, the RAG pipeline, deployment and
 > production debugging were all done by me.
@@ -139,7 +139,7 @@ question
   ├─ embed the question              → 384-d vector
   ├─ top-5 cosine neighbours         → filtered by organization_id
   ├─ build a grounded prompt         → "answer only from this context"
-  └─ OpenRouter                      → NVIDIA Nemotron (configurable)
+  └─ Gemini → OpenRouter fallback    → configurable provider chain
 ```
 
 Retrieval applies a `RAG_MIN_SIMILARITY` gate (default `0.34`), so unrelated
@@ -176,12 +176,14 @@ decoding (temperature `0`) and a larger token budget so the reasoning step is no
 Every other document answer keeps the strict grounding rule; unmatched questions are handled
 by the labelled general-knowledge path.
 
-**Resilience.** The default model is `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`.
-A bounded retry loop covers transport errors and 429/5xx responses with exponential backoff.
-If `OPENROUTER_FALLBACK_MODEL` is set, both models are sent in a single `models` array with
-`route: "fallback"`, letting OpenRouter fail over server-side without an extra client round
-trip; it is blank by default. If SSE fails before the first token, the streaming endpoint
-falls back to a buffered completion and chunks it, so the user still sees an answer.
+**Resilience.** `gemini-3.5-flash-lite` is the primary model when `GEMINI_API_KEY`
+is configured. A Gemini quota/auth/provider failure immediately falls back to an
+OpenRouter chain led by `nvidia/nemotron-3.5-lightning:free`, followed by Gemma,
+Xing and Nemotron Nano. Provider-specific cooldowns honor `Retry-After` and avoid
+repeatedly hitting a throttled service. Transport and 5xx failures use bounded
+exponential backoff; a 429 moves to the next provider instead of being hammered.
+If OpenRouter SSE fails before the first token, the compatibility streaming endpoint
+falls back to a buffered multi-provider completion and chunks it.
 Reasoning is disabled (`reasoning.enabled = false`) by default so a hidden chain of thought
 does not consume the answer budget; multiple-choice inference opts in selectively. Errors are
 translated to short, non-leaky messages and never include the API key.
@@ -299,7 +301,7 @@ routes, and a tenant-isolation test now proves another tenant's document returns
 | Validation | Pydantic v2, pydantic-settings |
 | Auth | JWT (PyJWT), Argon2 via `pwdlib`, FastAPI dependencies |
 | Vector search | pgvector cosine distance, `sentence-transformers` MiniLM (384-d) |
-| LLM | OpenRouter (OpenAI-compatible `chat/completions` over `httpx`), configurable model with optional server-side fallback |
+| LLM | Gemini 3.5 Flash-Lite primary + OpenRouter high-context fallback pool over `httpx` |
 | Background work | Celery + Redis, `pypdf` and `python-docx` for extraction |
 | Object storage | MinIO (S3-compatible) via `minio` / `aioboto3` |
 | Rate limiting | SlowAPI |
@@ -330,7 +332,7 @@ backend/
 │   ├── services/                 # business logic, RAG, embedding, storage
 │   ├── tasks/                    # Celery app + document pipeline
 │   └── utils/chunking.py         # sliding-window splitter
-└── tests/                        # pytest suite, 179 tests (statement-aware fake DB)
+└── tests/                        # pytest suite, 185 tests (statement-aware fake DB)
 ```
 
 ---
@@ -346,7 +348,7 @@ cd document-manager-kit/backend
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 
-cp .env.example .env        # then edit: SECRET_KEY + OPENROUTER_API_KEY
+cp .env.example .env        # then edit: SECRET_KEY + GEMINI_API_KEY
 ```
 
 Generate a real signing key:
@@ -398,11 +400,11 @@ The core API runs without them. To ingest vectors and answer questions:
 pip install -r requirements-rag.txt
 ```
 
-Set `OPENROUTER_API_KEY` in `.env` (get one at <https://openrouter.ai/keys>). The default
-model is `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`, overridable with
-`OPENROUTER_MODEL`. `OPENROUTER_FALLBACK_MODEL` is optional and blank by default. Set `FRONTEND_URL` so
-invitation links point at the web app. If you want the embedding model served from disk instead of
-downloaded on first use, place it at `EMBEDDING_MODEL_PATH` (default
+Set `GEMINI_API_KEY` in `.env` to use `gemini-3.5-flash-lite` as the primary
+provider. `OPENROUTER_API_KEY` enables the comma-separated `OPENROUTER_MODELS`
+fallback pool. Set `FRONTEND_URL` so invitation links point at the web app. If
+you want the embedding model served from disk instead of downloaded on first use,
+place it at `EMBEDDING_MODEL_PATH` (default
 `models/all-MiniLM-L6-v2`) and the app will never contact HuggingFace.
 
 ---
@@ -440,7 +442,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 ## Testing & CI
 
 ```bash
-pytest              # 179 tests
+pytest              # 185 tests
 ruff check src/ tests/ scripts/
 ruff format --check src/ tests/ scripts/
 ```
@@ -467,7 +469,7 @@ rotated, and the check is there to stop it happening again.
   128-character ceiling (bcrypt/Argon2 truncate beyond 72 bytes, which would otherwise make
   two different passwords equivalent), and a rejection list of the most common passwords.
   `user1` and `password123` do not pass.
-- `SECRET_KEY`, the database password, the MinIO keys and the OpenRouter key have all been
+- `SECRET_KEY`, the database password, the MinIO keys and provider API keys have all been
   rotated off their defaults.
 - Postgres, Redis and MinIO all bind to `127.0.0.1`; only SSH and the API port are
   published, and an external scan confirms nothing else answers.

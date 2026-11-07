@@ -13,7 +13,7 @@ from src.core.security import is_authenticated
 from src.models.auth import User
 from src.services.document_registry import DocumentRegistryService
 from src.services.query_router import QueryRouter, QueryType
-from src.services.rag_service import OpenRouterError, RAGService
+from src.services.rag_service import GENERAL_LABEL, OpenRouterError, RAGService
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,13 @@ async def chat_endpoint(
         return {
             "type": "registry_list",
             "answer": DocumentRegistryService.render_markdown_table(registry_data),
+            "sources": [],
+        }
+
+    if intent is QueryType.GENERAL_KNOWLEDGE and QueryRouter.is_greeting(query):
+        return {
+            "type": "general_answer",
+            "answer": f"{GENERAL_LABEL}\n\nHello! How can I help you today?",
             "sources": [],
         }
 

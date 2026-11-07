@@ -51,6 +51,27 @@ async def test_chat_registry_intent_returns_markdown_table(
 
 
 @pytest.mark.asyncio
+async def test_chat_greeting_does_not_spend_an_llm_request(
+    auth_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def fail_if_initialized(self, db_session):
+        raise AssertionError("RAG service should not be initialized for a greeting")
+
+    monkeypatch.setattr(RAGService, "__init__", fail_if_initialized)
+
+    response = await auth_client.post("/api/v1/chat/", json={"query": "hi"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "type": "general_answer",
+        "answer": "**General knowledge** — not from your documents.\n\n"
+        "Hello! How can I help you today?",
+        "sources": [],
+    }
+
+
+@pytest.mark.asyncio
 async def test_chat_document_search_uses_rag(
     auth_client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

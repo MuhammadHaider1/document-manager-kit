@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import AsyncGenerator, List, Literal, Sequence
@@ -112,6 +113,7 @@ NO_CONTEXT_MESSAGE = (
 )
 
 RETRYABLE_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+_PROVIDER_COOLDOWNS: dict[str, float] = {}
 
 
 class OpenRouterError(Exception):
@@ -124,6 +126,18 @@ class OpenRouterRateLimitError(OpenRouterError):
 
 class OpenRouterAuthError(OpenRouterError):
     """The configured OpenRouter API key was rejected."""
+
+
+class GeminiError(OpenRouterError):
+    """Gemini generation failed; subclasses remain compatible with callers."""
+
+
+class GeminiRateLimitError(GeminiError):
+    """Gemini rejected a request because its project quota was exhausted."""
+
+
+class GeminiAuthError(GeminiError):
+    """The configured Gemini API key was rejected."""
 
 
 def _friendly_error(status_code: int, body: str) -> str:
@@ -163,6 +177,29 @@ def _friendly_error(status_code: int, body: str) -> str:
     return f"OpenRouter request failed (HTTP {status_code})."
 
 
+def _friendly_gemini_error(status_code: int, body: str) -> str:
+    """Translate Gemini errors without exposing the API key or raw response."""
+    message = ""
+    try:
+        data = json.loads(body)
+        message = str((data.get("error") or {}).get("message") or "")
+    except Exception:
+        pass
+
+    if status_code == 429:
+        return (
+            "Gemini 3.5 Flash-Lite is temporarily rate-limited or its project "
+            "quota is exhausted. Docuflow will try the OpenRouter fallback pool."
+        )
+    if status_code in (400, 404) and "model" in message.lower():
+        return "Gemini rejected the configured model name. Check GEMINI_MODEL."
+    if status_code in (401, 403):
+        return "Gemini rejected GEMINI_API_KEY. Check the key in backend/.env."
+    if status_code >= 500:
+        return "Gemini is temporarily unavailable. Docuflow will try a fallback."
+    return f"Gemini request failed (HTTP {status_code})."
+
+
 class RAGService:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
@@ -171,7 +208,9 @@ class RAGService:
         except Exception:
             logger.exception("Could not initialize embedding service")
             self.embedding_service = None
+        # ``api_key`` is retained as an alias for older tests and integrations.
         self.api_key = (settings.OPENROUTER_API_KEY or "").strip()
+        self.gemini_api_key = (settings.GEMINI_API_KEY or "").strip()
 
     # ------------------------------------------------------------------
     # Document ingestion / retrieval
@@ -559,23 +598,74 @@ class RAGService:
     # ------------------------------------------------------------------
     @property
     def is_configured(self) -> bool:
-        return bool(self.api_key)
+        return self.gemini_configured or self.openrouter_configured
+
+    @property
+    def gemini_configured(self) -> bool:
+        return bool(getattr(self, "gemini_api_key", ""))
+
+    @property
+    def openrouter_configured(self) -> bool:
+        return bool(getattr(self, "api_key", ""))
 
     @property
     def model_chain(self) -> List[str]:
         chain: List[str] = []
-        for model in (
+        configured = [
+            *str(settings.OPENROUTER_MODELS or "").split(","),
             settings.OPENROUTER_MODEL,
             settings.OPENROUTER_FALLBACK_MODEL,
-        ):
+        ]
+        for model in configured:
             model = (model or "").strip()
             if model and model not in chain:
                 chain.append(model)
         return chain
 
     @property
+    def _gemini_url(self) -> str:
+        base = settings.GEMINI_BASE_URL.rstrip("/")
+        return f"{base}/models/{settings.GEMINI_MODEL}:generateContent"
+
+    @property
     def _chat_url(self) -> str:
         return f"{settings.OPENROUTER_BASE_URL.rstrip('/')}/chat/completions"
+
+    @staticmethod
+    def _cooldown_remaining(provider: str) -> float:
+        return max(0.0, _PROVIDER_COOLDOWNS.get(provider, 0.0) - time.monotonic())
+
+    @staticmethod
+    def _retry_after_seconds(response: httpx.Response) -> float:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return max(1.0, float(retry_after))
+            except ValueError:
+                pass
+
+        reset = response.headers.get("X-RateLimit-Reset")
+        if reset:
+            try:
+                reset_value = float(reset)
+                if reset_value > 10_000_000_000:
+                    reset_value /= 1000
+                return max(1.0, reset_value - time.time())
+            except ValueError:
+                pass
+        return float(settings.LLM_PROVIDER_COOLDOWN_SECONDS)
+
+    @classmethod
+    def _set_provider_cooldown(
+        cls, provider: str, response: httpx.Response | None = None
+    ) -> None:
+        seconds = (
+            cls._retry_after_seconds(response)
+            if response is not None
+            else float(settings.LLM_PROVIDER_COOLDOWN_SECONDS)
+        )
+        # Avoid a malformed upstream header disabling a provider indefinitely.
+        _PROVIDER_COOLDOWNS[provider] = time.monotonic() + min(seconds, 86_400)
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -583,6 +673,37 @@ class RAGService:
             "Content-Type": "application/json",
             "HTTP-Referer": settings.OPENROUTER_SITE_URL,
             "X-Title": settings.OPENROUTER_APP_NAME,
+        }
+
+    def _gemini_headers(self) -> dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.gemini_api_key,
+        }
+
+    @staticmethod
+    def _gemini_text(data: dict) -> str:
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return ""
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        return "".join(
+            str(part.get("text") or "") for part in parts if not part.get("thought")
+        ).strip()
+
+    @staticmethod
+    def _gemini_payload(prompt: str, reasoning_enabled: bool = False) -> dict:
+        max_tokens = settings.GEMINI_MAX_OUTPUT_TOKENS
+        temperature = settings.GEMINI_TEMPERATURE
+        if reasoning_enabled:
+            max_tokens = max(max_tokens, 2048)
+            temperature = 0.0
+        return {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            },
         }
 
     def _payload(
@@ -618,10 +739,10 @@ class RAGService:
                 payload["max_tokens"] = max(payload["max_tokens"], 2048)
         return payload
 
-    def _ensure_configured(self) -> None:
+    def _ensure_openrouter_configured(self) -> None:
         if not self.model_chain:
             raise OpenRouterError("No OpenRouter model is configured.")
-        if not self.is_configured:
+        if not self.openrouter_configured:
             raise OpenRouterError(
                 "AI answer generation is not configured (set OPENROUTER_API_KEY)."
             )
@@ -630,9 +751,90 @@ class RAGService:
     def _retry_delay(attempt: int) -> float:
         return min(2.0 * (2 ** (attempt - 1)), 12.0)
 
-    async def _complete(self, prompt: str, reasoning_enabled: bool = False) -> str:
-        """Non-streaming completion with bounded retries on transient errors."""
-        self._ensure_configured()
+    async def _complete_gemini(
+        self, prompt: str, reasoning_enabled: bool = False
+    ) -> str:
+        """Generate with Gemini, failing quickly to the OpenRouter pool on 429."""
+        if not self.gemini_configured:
+            raise GeminiError("Gemini is not configured (set GEMINI_API_KEY).")
+
+        remaining = self._cooldown_remaining("gemini")
+        if remaining > 0:
+            raise GeminiRateLimitError(
+                f"Gemini is cooling down; retry in {max(1, int(remaining))} seconds."
+            )
+
+        last_error: Exception = GeminiError("Gemini request failed.")
+        attempts = max(1, settings.GEMINI_MAX_RETRIES)
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=settings.GEMINI_TIMEOUT_SECONDS
+                ) as client:
+                    response = await client.post(
+                        self._gemini_url,
+                        headers=self._gemini_headers(),
+                        json=self._gemini_payload(prompt, reasoning_enabled),
+                    )
+            except httpx.HTTPError as exc:
+                last_error = GeminiError(
+                    "Could not reach Gemini. Docuflow will try a fallback."
+                )
+                logger.warning(
+                    "Gemini transport error on attempt %s/%s: %s",
+                    attempt,
+                    attempts,
+                    exc,
+                )
+            else:
+                if response.status_code in (401, 403):
+                    raise GeminiAuthError(
+                        _friendly_gemini_error(response.status_code, response.text)
+                    )
+                if response.status_code == 429:
+                    self._set_provider_cooldown("gemini", response)
+                    raise GeminiRateLimitError(
+                        _friendly_gemini_error(response.status_code, response.text)
+                    )
+                if response.status_code in RETRYABLE_STATUS_CODES:
+                    last_error = GeminiError(
+                        _friendly_gemini_error(response.status_code, response.text)
+                    )
+                    logger.warning(
+                        "Gemini HTTP %s on attempt %s/%s",
+                        response.status_code,
+                        attempt,
+                        attempts,
+                    )
+                elif response.is_error:
+                    raise GeminiError(
+                        _friendly_gemini_error(response.status_code, response.text)
+                    )
+                else:
+                    content = self._gemini_text(response.json())
+                    if not content:
+                        raise GeminiError(
+                            "Gemini returned no text. Please rephrase the question."
+                        )
+                    logger.info("Gemini answered with %s", settings.GEMINI_MODEL)
+                    return content
+
+            if attempt < attempts:
+                await asyncio.sleep(self._retry_delay(attempt))
+
+        raise last_error
+
+    async def _complete_openrouter(
+        self, prompt: str, reasoning_enabled: bool = False
+    ) -> str:
+        """Non-streaming OpenRouter completion with model fallback routing."""
+        self._ensure_openrouter_configured()
+
+        remaining = self._cooldown_remaining("openrouter")
+        if remaining > 0:
+            raise OpenRouterRateLimitError(
+                f"OpenRouter is cooling down; retry in {max(1, int(remaining))} seconds."
+            )
 
         last_error: Exception = OpenRouterError("OpenRouter request failed.")
         attempts = max(1, settings.OPENROUTER_MAX_RETRIES)
@@ -667,7 +869,8 @@ class RAGService:
                 if response.status_code in RETRYABLE_STATUS_CODES:
                     message = _friendly_error(response.status_code, response.text)
                     if response.status_code == 429:
-                        last_error = OpenRouterRateLimitError(message)
+                        self._set_provider_cooldown("openrouter", response)
+                        raise OpenRouterRateLimitError(message)
                     else:
                         last_error = OpenRouterError(message)
                     logger.warning(
@@ -699,11 +902,44 @@ class RAGService:
 
         raise last_error
 
+    async def _complete(self, prompt: str, reasoning_enabled: bool = False) -> str:
+        """Use Gemini first, then OpenRouter's free high-context model pool."""
+        errors: list[str] = []
+
+        if self.gemini_configured:
+            try:
+                return await self._complete_gemini(prompt, reasoning_enabled)
+            except GeminiError as exc:
+                errors.append(str(exc))
+                logger.warning("Gemini generation failed; trying OpenRouter: %s", exc)
+
+        if self.openrouter_configured:
+            try:
+                return await self._complete_openrouter(prompt, reasoning_enabled)
+            except OpenRouterError as exc:
+                errors.append(str(exc))
+                logger.warning("OpenRouter generation failed: %s", exc)
+
+        if not self.gemini_configured and not self.openrouter_configured:
+            raise OpenRouterError(
+                "AI answer generation is not configured. Set GEMINI_API_KEY or "
+                "OPENROUTER_API_KEY in backend/.env."
+            )
+
+        detail = errors[-1] if errors else "No AI provider is currently available."
+        raise OpenRouterError(f"All configured AI providers failed. {detail}")
+
     async def _open_stream(
         self, prompt: str, reasoning_enabled: bool = False
     ) -> tuple[httpx.AsyncClient, httpx.Response]:
         """Open an SSE stream, retrying only before any token is consumed."""
-        self._ensure_configured()
+        self._ensure_openrouter_configured()
+
+        remaining = self._cooldown_remaining("openrouter")
+        if remaining > 0:
+            raise OpenRouterRateLimitError(
+                f"OpenRouter is cooling down; retry in {max(1, int(remaining))} seconds."
+            )
 
         last_error: Exception = OpenRouterError("OpenRouter request failed.")
         attempts = max(1, min(2, settings.OPENROUTER_MAX_RETRIES))
@@ -743,6 +979,7 @@ class RAGService:
                     body = (await response.aread()).decode(errors="replace")
                     message = _friendly_error(response.status_code, body)
                     if response.status_code == 429:
+                        self._set_provider_cooldown("openrouter", response)
                         last_error = OpenRouterRateLimitError(message)
                     else:
                         last_error = OpenRouterError(message)
@@ -755,6 +992,8 @@ class RAGService:
                     )
                     await response.aclose()
                     await client.aclose()
+                    if isinstance(last_error, OpenRouterRateLimitError):
+                        raise last_error
                 elif response.is_error:
                     body = (await response.aread()).decode(errors="replace")
                     await response.aclose()
@@ -816,7 +1055,7 @@ class RAGService:
                 context = "\n\n".join(str(c.chunk_text) for c in chunks)
                 text = (
                     context[:1500] + "\n\n[AI answer generation is not configured. "
-                    "Set OPENROUTER_API_KEY to enable it.]"
+                    "Set GEMINI_API_KEY or OPENROUTER_API_KEY to enable it.]"
                 )
                 return AnswerResult(
                     answer=f"{text}{self._source_footer(sources)}",
@@ -845,7 +1084,7 @@ class RAGService:
             return AnswerResult(
                 answer=(
                     f"{NO_CONTEXT_MESSAGE}\n\n"
-                    "[General answers also need OPENROUTER_API_KEY.]"
+                    "[General answers need GEMINI_API_KEY or OPENROUTER_API_KEY.]"
                 ),
                 mode="error",
             )
@@ -895,7 +1134,7 @@ class RAGService:
                 context = "\n\n".join(str(chunk.chunk_text) for chunk in chunks)
                 fallback = (
                     context[:1500] + "\n\n[AI answer generation is not configured. "
-                    "Set OPENROUTER_API_KEY to enable it.]" + suffix
+                    "Set GEMINI_API_KEY or OPENROUTER_API_KEY to enable it.]" + suffix
                 )
                 for index in range(0, len(fallback), 50):
                     yield fallback[index : index + 50]
@@ -905,7 +1144,7 @@ class RAGService:
             if not self.is_configured:
                 yield (
                     f"{NO_CONTEXT_MESSAGE}\n\n"
-                    "[General answers also need OPENROUTER_API_KEY.]"
+                    "[General answers need GEMINI_API_KEY or OPENROUTER_API_KEY.]"
                 )
                 return
             prompt = self._build_general_prompt(query, history)
@@ -913,6 +1152,23 @@ class RAGService:
             disclaimer = self._general_disclaimer(query)
             suffix = f"\n\n{disclaimer}" if disclaimer else ""
             yield f"{GENERAL_NO_MATCH_LABEL}\n\n"
+
+        # Gemini's direct API is the primary provider. Buffer its response and
+        # preserve this compatibility endpoint's chunked-text contract; if
+        # Gemini fails, _complete transparently tries the OpenRouter pool.
+        if self.gemini_configured:
+            try:
+                answer = await self._complete(
+                    prompt, reasoning_enabled=is_multiple_choice
+                )
+            except OpenRouterError as exc:
+                yield str(exc)
+                return
+            for index in range(0, len(answer), 50):
+                yield answer[index : index + 50]
+                await asyncio.sleep(0.01)
+            yield suffix
+            return
 
         try:
             client, response = await self._open_stream(
@@ -950,6 +1206,8 @@ class RAGService:
                     message = _friendly_error(code, json.dumps(event))
                     logger.warning("OpenRouter stream error: %s", message)
                     failed = True
+                    if code == 429:
+                        self._set_provider_cooldown("openrouter")
                     if not emitted:
                         fallback_error = (
                             OpenRouterRateLimitError(message)

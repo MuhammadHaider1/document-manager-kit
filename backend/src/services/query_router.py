@@ -90,6 +90,11 @@ class QueryRouter:
     def _normalise(query: str) -> str:
         return re.sub(r"\s+", " ", query.strip().lower()).strip(" .,!?:;")
 
+    @classmethod
+    def is_greeting(cls, query: str) -> bool:
+        text = cls._normalise(query)
+        return any(re.search(pattern, text) for pattern in cls.GENERAL_PATTERNS)
+
     CLASSIFICATION_MODEL: ClassVar[str] = "gpt-4o-mini"
     CLASSIFICATION_SYSTEM_PROMPT: ClassVar[str] = (
         "Classify the user's request into exactly one category: "
@@ -119,7 +124,7 @@ class QueryRouter:
             if re.search(pattern, clean_query):
                 return QueryType.DOCUMENT_REGISTRY
 
-        if any(re.search(pattern, clean_query) for pattern in cls.GENERAL_PATTERNS):
+        if cls.is_greeting(clean_query):
             return QueryType.GENERAL_KNOWLEDGE
 
         if llm_client is not None:

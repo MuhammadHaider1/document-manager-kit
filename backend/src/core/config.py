@@ -33,22 +33,40 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_PATH: str = "models/all-MiniLM-L6-v2"
     EMBEDDING_MODEL_ID: str = "all-MiniLM-L6-v2"
 
+    # Gemini is the primary answer provider when a key is configured. The
+    # stable Flash-Lite model offers a 1M-token input window and 65K output
+    # ceiling; Docuflow uses a smaller configurable budget for normal answers.
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
+    GEMINI_TIMEOUT_SECONDS: float = 90.0
+    GEMINI_MAX_OUTPUT_TOKENS: int = 1800
+    GEMINI_TEMPERATURE: float = 0.1
+    GEMINI_MAX_RETRIES: int = 2
+
     # OpenRouter (RAG answer generation)
     # Get a key at https://openrouter.ai/keys. Leave blank to run without
     # AI generation; the /query endpoints then return relevant excerpts.
     OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODELS: str = (
+        "nvidia/nemotron-3.5-lightning:free,"
+        "google/gemma-4-31b-it:free,"
+        "xingchen-agi/xing4.0-29b-a4b:free,"
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    )
     OPENROUTER_MODEL: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
     # Optional second model for server-side failover. Leave blank to use
     # only OPENROUTER_MODEL.
     OPENROUTER_FALLBACK_MODEL: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_TIMEOUT_SECONDS: float = 90.0
-    OPENROUTER_MAX_TOKENS: int = 900
+    OPENROUTER_MAX_TOKENS: int = 1800
     OPENROUTER_TEMPERATURE: float = 0.1
     OPENROUTER_MAX_RETRIES: int = 4
     OPENROUTER_REASONING_ENABLED: bool = False
     OPENROUTER_SITE_URL: str = "http://localhost:5180"
     OPENROUTER_APP_NAME: str = "DocuFlow"
+    LLM_PROVIDER_COOLDOWN_SECONDS: int = 60
 
     # Retrieval quality gate. Chunks below this cosine similarity are ignored,
     # so unrelated questions fall through to a clearly-labelled general answer

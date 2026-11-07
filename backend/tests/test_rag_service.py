@@ -1,5 +1,6 @@
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.dialects import postgresql
@@ -12,6 +13,7 @@ from src.services.rag_service import (
     NO_CONTEXT_MESSAGE,
     SIMILARITY_THRESHOLD,
     AnswerResult,
+    GeminiError,
     OpenRouterError,
     RAGService,
 )
@@ -66,6 +68,82 @@ def test_payload_keeps_reasoning_off_by_default(monkeypatch):
 
     assert payload["reasoning"] == {"enabled": False}
     assert payload["temperature"] == settings.OPENROUTER_TEMPERATURE
+
+
+def test_openrouter_payload_uses_high_context_fallback_chain():
+    service = object.__new__(RAGService)
+
+    payload = service._payload("prompt", stream=False)
+
+    assert payload["models"][0] == "nvidia/nemotron-3.5-lightning:free"
+    assert "google/gemma-4-31b-it:free" in payload["models"]
+    assert "xingchen-agi/xing4.0-29b-a4b:free" in payload["models"]
+    assert payload["route"] == "fallback"
+
+
+def test_gemini_payload_uses_configured_budget_and_reasoning_override(monkeypatch):
+    monkeypatch.setattr(settings, "GEMINI_MAX_OUTPUT_TOKENS", 1800)
+    monkeypatch.setattr(settings, "GEMINI_TEMPERATURE", 0.1)
+
+    normal = RAGService._gemini_payload("question")
+    reasoning = RAGService._gemini_payload("quiz", reasoning_enabled=True)
+
+    assert normal["contents"][0]["parts"][0]["text"] == "question"
+    assert normal["generationConfig"] == {
+        "temperature": 0.1,
+        "maxOutputTokens": 1800,
+    }
+    assert reasoning["generationConfig"]["temperature"] == 0.0
+    assert reasoning["generationConfig"]["maxOutputTokens"] >= 2048
+
+
+def test_gemini_text_joins_visible_parts_and_ignores_thoughts():
+    text = RAGService._gemini_text(
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "hidden", "thought": True},
+                            {"text": "Hello "},
+                            {"text": "world"},
+                        ]
+                    }
+                }
+            ]
+        }
+    )
+
+    assert text == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_completion_prefers_gemini_when_both_providers_are_configured():
+    service = object.__new__(RAGService)
+    service.gemini_api_key = "gemini-key"
+    service.api_key = "openrouter-key"
+    service._complete_gemini = AsyncMock(return_value="Gemini answer")
+    service._complete_openrouter = AsyncMock(return_value="OpenRouter answer")
+
+    answer = await service._complete("question")
+
+    assert answer == "Gemini answer"
+    service._complete_gemini.assert_awaited_once_with("question", False)
+    service._complete_openrouter.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_completion_falls_back_to_openrouter_when_gemini_fails():
+    service = object.__new__(RAGService)
+    service.gemini_api_key = "gemini-key"
+    service.api_key = "openrouter-key"
+    service._complete_gemini = AsyncMock(side_effect=GeminiError("quota exhausted"))
+    service._complete_openrouter = AsyncMock(return_value="Fallback answer")
+
+    answer = await service._complete("question", reasoning_enabled=True)
+
+    assert answer == "Fallback answer"
+    service._complete_openrouter.assert_awaited_once_with("question", True)
 
 
 def test_multiple_choice_instruction_targets_foundational_work():
