@@ -12,10 +12,18 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.tracing import (
+    chunks_output,
+    current_run,
+    record_llm_usage,
+    summarize_chunks,
+    trace_span,
+    traceable,
+)
 from src.models.chunks import DocumentChunk
 from src.models.document import Document
 from src.services.embedding_service import EmbeddingService
-from src.utils.chunking import chunk_text
+from src.utils.chunking import chunk_text_with_spans
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +208,28 @@ def _friendly_gemini_error(status_code: int, body: str) -> str:
     return f"Gemini request failed (HTTP {status_code})."
 
 
+def _prepare_prompt_output(outputs: object) -> dict:
+    """Compact trace payload for ``_prepare_prompt`` (avoids dumping chunks)."""
+    prompt, chunks, is_multiple_choice = outputs  # type: ignore[misc]
+    return {
+        "is_multiple_choice": is_multiple_choice,
+        "chunk_count": len(chunks),
+        "prompt_chars": len(prompt or ""),
+        "prompt_preview": (prompt or "")[:1200],
+        "chunks": summarize_chunks(chunks),
+    }
+
+
+def _answer_output(result: object) -> dict:
+    """Compact trace payload for ``answer_chat``'s ``AnswerResult``."""
+    return {
+        "mode": getattr(result, "mode", None),
+        "sources": list(getattr(result, "sources", []) or []),
+        "answer_chars": len(getattr(result, "answer", "") or ""),
+        "answer_preview": (getattr(result, "answer", "") or "")[:2000],
+    }
+
+
 class RAGService:
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
@@ -215,12 +245,28 @@ class RAGService:
     # ------------------------------------------------------------------
     # Document ingestion / retrieval
     # ------------------------------------------------------------------
+    def _token_counter(self):
+        """Return the embedding tokenizer's counter when one is available."""
+        counter = getattr(self.embedding_service, "count_tokens", None)
+        return counter if callable(counter) else None
+
+    @traceable(
+        run_type="chain",
+        name="rag.ingest_document",
+        process_outputs=chunks_output,
+    )
     async def process_and_store_document(
-        self, document_id: uuid.UUID, text: str
+        self,
+        document_id: uuid.UUID,
+        text: str,
+        pages: list[tuple[int, str]] | None = None,
     ) -> List[DocumentChunk]:
-        raw_chunks = chunk_text(text)
-        if not raw_chunks:
+        counter = self._token_counter()
+        spans = chunk_text_with_spans(text, count_tokens=counter, pages=pages)
+        if not spans:
             return []
+
+        raw_chunks = [span.text for span in spans]
 
         if self.embedding_service is None:
             raise RuntimeError(
@@ -228,27 +274,60 @@ class RAGService:
             )
 
         loop = asyncio.get_running_loop()
-        try:
-            embeddings = await loop.run_in_executor(
-                None, self.embedding_service.get_embeddings_batch, raw_chunks
-            )
-        except Exception:
-            logger.exception("Embedding generation failed for document %s", document_id)
-            raise
+        batch_size = max(1, settings.EMBEDDING_BATCH_SIZE)
+        total = len(raw_chunks)
+        embeddings: list[list[float]] = []
+        with trace_span(
+            "rag.embed_chunks",
+            run_type="embedding",
+            inputs={"chunk_count": total},
+            metadata={
+                "model": settings.EMBEDDING_MODEL_ID,
+                "batch_size": batch_size,
+            },
+        ) as embed_run:
+            try:
+                for start in range(0, total, batch_size):
+                    batch = raw_chunks[start : start + batch_size]
+                    batch_vectors = await loop.run_in_executor(
+                        None, self.embedding_service.get_embeddings_batch, batch
+                    )
+                    embeddings.extend(batch_vectors)
+                    if total > batch_size:
+                        logger.info(
+                            "Embedded %s/%s chunks for document %s",
+                            min(start + batch_size, total),
+                            total,
+                            document_id,
+                        )
+            except Exception:
+                logger.exception(
+                    "Embedding generation failed for document %s", document_id
+                )
+                raise
 
         if len(embeddings) != len(raw_chunks):
             raise RuntimeError(
                 "Embedding service returned a different number of vectors "
                 f"({len(embeddings)}) than document chunks ({len(raw_chunks)})."
             )
+        if embed_run is not None:
+            embed_run.add_outputs(
+                {
+                    "vectors": len(embeddings),
+                    "dimensions": len(embeddings[0]) if embeddings else 0,
+                }
+            )
 
         chunk_objects = [
             DocumentChunk(
                 document_id=document_id,
-                chunk_text=piece,
+                chunk_text=span.text,
                 embedding=vector,
+                chunk_index=index,
+                page_number=span.page_number,
             )
-            for piece, vector in zip(raw_chunks, embeddings)
+            for index, (span, vector) in enumerate(zip(spans, embeddings))
         ]
 
         try:
@@ -307,6 +386,11 @@ class RAGService:
             selected.extend(overflow[: limit - len(selected)])
         return selected
 
+    @traceable(
+        run_type="retriever",
+        name="rag.search_similar_chunks",
+        process_outputs=chunks_output,
+    )
     async def search_similar_chunks(
         self, query: str, org_id: uuid.UUID, limit: int = 5
     ) -> List[DocumentChunk]:
@@ -643,6 +727,11 @@ class RAGService:
             "the organization's documents."
         )
 
+    @traceable(
+        run_type="chain",
+        name="rag.prepare_prompt",
+        process_outputs=_prepare_prompt_output,
+    )
     async def _prepare_prompt(
         self,
         query: str,
@@ -840,6 +929,7 @@ class RAGService:
     def _retry_delay(attempt: int) -> float:
         return min(2.0 * (2 ** (attempt - 1)), 12.0)
 
+    @traceable(run_type="llm", name="rag.complete_gemini")
     async def _complete_gemini(
         self, prompt: str, reasoning_enabled: bool = False
     ) -> str:
@@ -900,11 +990,18 @@ class RAGService:
                         _friendly_gemini_error(response.status_code, response.text)
                     )
                 else:
-                    content = self._gemini_text(response.json())
+                    data = response.json()
+                    content = self._gemini_text(data)
                     if not content:
                         raise GeminiError(
                             "Gemini returned no text. Please rephrase the question."
                         )
+                    record_llm_usage(
+                        current_run(),
+                        provider="gemini",
+                        model=settings.GEMINI_MODEL,
+                        usage=data.get("usageMetadata") or None,
+                    )
                     logger.info("Gemini answered with %s", settings.GEMINI_MODEL)
                     return content
 
@@ -913,6 +1010,7 @@ class RAGService:
 
         raise last_error
 
+    @traceable(run_type="llm", name="rag.complete_openrouter")
     async def _complete_openrouter(
         self, prompt: str, reasoning_enabled: bool = False
     ) -> str:
@@ -982,6 +1080,12 @@ class RAGService:
                         )
                     logger.info("OpenRouter answered with %s", data.get("model"))
                     content = (choices[0].get("message") or {}).get("content")
+                    record_llm_usage(
+                        current_run(),
+                        provider="openrouter",
+                        model=data.get("model"),
+                        usage=data.get("usage") or None,
+                    )
                     return content or (
                         "The model returned no text. Please rephrase the question."
                     )
@@ -991,6 +1095,7 @@ class RAGService:
 
         raise last_error
 
+    @traceable(run_type="chain", name="rag.complete")
     async def _complete(self, prompt: str, reasoning_enabled: bool = False) -> str:
         """Use Gemini first, then OpenRouter's free high-context model pool."""
         errors: list[str] = []
@@ -1117,6 +1222,11 @@ class RAGService:
             return GENERAL_DISCLAIMER
         return None
 
+    @traceable(
+        run_type="chain",
+        name="rag.answer_chat",
+        process_outputs=_answer_output,
+    )
     async def answer_chat(
         self,
         query: str,

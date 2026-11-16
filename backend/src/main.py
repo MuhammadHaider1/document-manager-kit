@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import text
 
 from src.api.v1 import comment
 from src.api.v1.audit import router as audit_router
@@ -28,6 +29,15 @@ async def lifespan(app: FastAPI):
     # Startup: Database tables schema verification
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # ``create_all`` never alters an existing table, so add the columns the
+        # chunker needs on databases created before they existed.
+        await conn.execute(
+            text(
+                "ALTER TABLE documentchunk "
+                "ADD COLUMN IF NOT EXISTS chunk_index INTEGER, "
+                "ADD COLUMN IF NOT EXISTS page_number INTEGER"
+            )
+        )
 
     # Storage bucket initialization
     await storage_manager.initialize_bucket()

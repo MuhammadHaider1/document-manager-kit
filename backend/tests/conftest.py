@@ -5,6 +5,14 @@ services receive realistic rows and assertions can check real application
 behaviour instead of MagicMock truthiness.
 """
 
+# ruff: noqa: E402
+
+import os
+
+# Tests must never ship traces to LangSmith, even when .env enables tracing.
+# This has to run before ``src.main`` (and therefore ``Settings``) is imported.
+os.environ["LANGSMITH_TRACING"] = "false"
+
 import uuid
 from datetime import datetime, timezone
 from typing import Any, NamedTuple

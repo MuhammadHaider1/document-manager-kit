@@ -25,6 +25,14 @@ async def main():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Existing installs predate these columns; create_all cannot add them.
+        await conn.execute(
+            text(
+                "ALTER TABLE documentchunk "
+                "ADD COLUMN IF NOT EXISTS chunk_index INTEGER, "
+                "ADD COLUMN IF NOT EXISTS page_number INTEGER"
+            )
+        )
     print("✅ All database tables created successfully!")
 
     async with SessionLocal() as session:

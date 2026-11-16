@@ -32,6 +32,28 @@ class Settings(BaseSettings):
     # HuggingFace is never contacted. Otherwise the hub id is used instead.
     EMBEDDING_MODEL_PATH: str = "models/all-MiniLM-L6-v2"
     EMBEDDING_MODEL_ID: str = "all-MiniLM-L6-v2"
+    # MiniLM truncates at 256 tokens. Chunks are kept below that ceiling so no
+    # text is silently dropped before it is embedded.
+    EMBEDDING_MAX_SEQ_LENGTH: int = 256
+    # Encoding many chunks in one call is far faster on CPU than one-by-one.
+    EMBEDDING_BATCH_SIZE: int = 64
+
+    # Structure-aware chunking. Targets are in tokens; ``CHUNK_MIN_CHARS``
+    # merges a tiny trailing fragment into the previous chunk.
+    CHUNK_MAX_TOKENS: int = 200
+    CHUNK_OVERLAP_TOKENS: int = 40
+    CHUNK_MIN_CHARS: int = 120
+
+    # LangSmith tracing. Tracing is off unless both the switch and a key are
+    # set, so local/test runs never ship data to a third party by accident.
+    LANGSMITH_TRACING: bool = False
+    LANGSMITH_API_KEY: str = ""
+    LANGSMITH_PROJECT: str = "docuflow"
+    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
+
+    # Celery guard rails so a huge PDF cannot pin a worker slot forever.
+    CELERY_TASK_SOFT_TIME_LIMIT: int = 1500
+    CELERY_TASK_TIME_LIMIT: int = 1800
 
     # Gemini is the primary answer provider when a key is configured. The
     # stable Flash-Lite model offers a 1M-token input window and 65K output
