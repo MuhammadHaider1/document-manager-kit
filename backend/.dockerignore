@@ -1,0 +1,37 @@
+# Build context for the API/worker image.
+#
+# Keep secrets and local-only artifacts out of the image. Anything not listed
+# here is sent to the daemon and can end up baked into a layer.
+
+# Secrets are injected at runtime (env_file / the platform's secret store).
+.env
+.env.*
+!.env*.example
+
+# Local virtualenv (multi-GB). Dependencies come from requirements files.
+.venv/
+venv/
+
+# Local model cache; the builder stage downloads its own copy.
+models/
+
+# Python bytecode and tool caches.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Tests and dev tooling are not part of the runtime image.
+tests/
+requirements-dev.txt
+pytest.ini
+
+# VCS / editor / OS noise.
+.git/
+.gitignore
+.dockerignore
+.vscode/
+.idea/
+.DS_Store
+*.log

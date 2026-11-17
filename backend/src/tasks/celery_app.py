@@ -26,6 +26,12 @@ app.conf.task_default_routing_key = app.conf.task_default_queue
 app.conf.task_soft_time_limit = settings.CELERY_TASK_SOFT_TIME_LIMIT
 app.conf.task_time_limit = settings.CELERY_TASK_TIME_LIMIT
 
+# Each prefork child loads its own copy of the embedding model, so concurrency
+# is pinned (default 1) rather than left at "one per CPU core". Prefetching one
+# task at a time keeps a slow document from being reserved by a busy child.
+app.conf.worker_concurrency = settings.CELERY_WORKER_CONCURRENCY
+app.conf.worker_prefetch_multiplier = 1
+
 app.autodiscover_tasks(["src.tasks"])
 
 if __name__ == "__main__":

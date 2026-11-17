@@ -361,9 +361,11 @@ end: a 2.4 MB, 846-page book went from thousands of dropped glyphs to zero artef
 
 ```
 backend/
-├── .github/workflows/ci.yml      # lint, tests, secret scan (moved to repo root in the monorepo)
-├── docker/                       # FastAPI & Celery Dockerfiles
-├── docker-compose.yml            # postgres+pgvector, redis, minio
+├── Dockerfile                    # multi-stage API + worker image (CPU torch, baked model)
+├── docker-compose.yml            # local dev: postgres+pgvector, redis, minio
+├── docker-compose.prod.yml       # production: caddy + web + api + worker + services
+├── Caddyfile                     # automatic HTTPS for the app and storage hostnames
+├── .env.production.example       # production environment template
 ├── migrations/versions/          # 7 stored Alembic revisions
 ├── requirements.txt              # runtime deps
 ├── requirements-dev.txt          # test + lint tooling
@@ -417,9 +419,9 @@ docker compose up -d
 | MinIO API | `9100` | |
 | MinIO console | `9101` | <http://localhost:9101> |
 
-Then initialise the database. The model metadata is the source of truth (`init_db.py` runs
-`Base.metadata.create_all` and seeds RBAC, including the `Member` role and the `invitation`
-table):
+Then initialise the database. This is optional — the API creates the pgvector
+extension, every table and the seeded RBAC roles/permissions on startup, so a fresh
+deployment needs no manual step. `init_db.py` does the same thing out of band:
 
 ```bash
 python init_db.py
@@ -528,25 +530,33 @@ rotated, and the check is there to stop it happening again.
 
 > **Deployment note:**
 >
-> The API is designed to sit behind a TLS reverse proxy (Tailscale Funnel, nginx, Caddy or a
-> cloud load balancer). Bind Uvicorn to `127.0.0.1:8000` and expose only the proxy on 443;
-> Postgres, Redis, MinIO and the API's own port should stay private. Because the API is
-> public, every route is rate limited (38/38): `login` and `register` at 5/minute, so the
-> endpoint cannot be used for offline password guessing.
+> `docker-compose.prod.yml` runs the whole stack — Caddy (automatic HTTPS), the
+> built SPA, the API, the Celery worker, PostgreSQL/pgvector, Redis and MinIO — on a
+> single host. Only Caddy publishes ports; everything else stays on the private
+> Docker network. Copy `.env.production.example` to `.env.production`, edit it, then:
+>
+> ```bash
+> docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+> ```
+>
+> The API is public, so every route is rate limited (38/38): `login` and `register`
+> at 5/minute, so the endpoint cannot be used for offline password guessing. Set
+> `MINIO_PUBLIC_ENDPOINT` to the public storage origin or presigned download URLs
+> will fail their signature check off-host.
 
 ---
 
 ## Roadmap
 
-- [ ] Replace the hard-coded Celery broker URL with a setting
 - [ ] Real integration tests against a live Postgres + pgvector instance
-- [x] HTTPS deployment support (Tailscale Serve / Let's Encrypt)
+- [x] HTTPS deployment support (Docker Compose + Caddy, Let's Encrypt)
 - [x] Structure-aware chunking with per-page citations and in-memory PDF ligature repair
 - [x] Optional LangSmith tracing for ingestion and Ask AI
+- [x] Environment-driven Celery broker/result backend and worker concurrency
+- [x] Presigned upload/download URLs that work outside the host (`MINIO_PUBLIC_ENDPOINT`)
+- [x] Container images for the API and worker (CPU torch, baked embedding model)
 - [ ] OCR for scanned PDFs and images (`pypdfium2`/`pypdf` and `python-docx` only read text layers)
-- [ ] Presigned upload/download URLs that work outside the host
 - [ ] Hybrid retrieval (BM25 + vector) and a re-ranker
-- [ ] Container images for the API and worker
 - [ ] Rate-limit and audit-log dashboards
 
 ---

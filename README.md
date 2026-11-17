@@ -78,8 +78,10 @@ Ask AI requests.
 docuflow/
 ├── .github/workflows/ci.yml     # backend lint/tests, frontend lint/tests/build, secret scan
 ├── backend/                    # FastAPI + SQLAlchemy + Celery + pgvector
-│   ├── docker/                 # API and worker Dockerfiles
-│   ├── docker-compose.yml      # PostgreSQL/pgvector, Redis, MinIO
+│   ├── Dockerfile              # multi-stage API + worker image (CPU torch, baked model)
+│   ├── docker-compose.yml      # local dev: PostgreSQL/pgvector, Redis, MinIO
+│   ├── docker-compose.prod.yml # production: Caddy + web + API + worker + services
+│   ├── Caddyfile               # automatic HTTPS for the app and storage hosts
 │   ├── migrations/             # legacy Alembic revisions (see note below)
 │   ├── scripts/                # re-index and manual RAG utilities
 │   ├── src/                    # API, models, repositories, services, tasks
@@ -149,7 +151,7 @@ cp .env.example .env
 # Generate a signing key with: openssl rand -hex 32
 
 docker compose up -d               # PostgreSQL/pgvector, Redis, MinIO
-python init_db.py                  # create tables and seed RBAC
+python init_db.py                  # optional: the API also creates + seeds on boot
 
 uvicorn src.main:app --reload --port 8000
 ```
@@ -164,9 +166,11 @@ celery -A src.tasks.celery_app.app worker --loglevel=info
 
 API docs: <http://localhost:8000/docs>
 
-> **Database note.** `init_db.py` is the supported schema path. The stored Alembic
-> revisions are legacy snapshots and do not reproduce the current schema from an
-> empty database.
+> **Database note.** The API creates the pgvector extension, every table and the
+> seeded RBAC roles/permissions on startup, so a fresh deployment needs no manual
+> step. `init_db.py` does the same thing out of band. The stored Alembic revisions
+> are legacy snapshots and do not reproduce the current schema from an empty
+> database.
 
 ### 3. Frontend
 
@@ -207,6 +211,8 @@ Copy the example files and fill in your own values. **Never commit real secrets.
 | `SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
 | `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME` | PostgreSQL connection |
 | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET_NAME` | Object storage |
+| `MINIO_PUBLIC_ENDPOINT` | Public origin the browser uses for presigned download URLs (set when behind a proxy) |
+| `BACKEND_CORS_ORIGINS` | Extra browser origins allowed to call the API (`FRONTEND_URL` is always allowed) |
 | `GEMINI_API_KEY` | Enables the primary Gemini answer provider |
 | `GEMINI_MODEL` | Primary model; defaults to `gemini-3.5-flash-lite` |
 | `OPENROUTER_API_KEY` | Enables the fallback model pool |
@@ -220,6 +226,7 @@ Copy the example files and fill in your own values. **Never commit real secrets.
 | `CHUNK_MAX_TOKENS`, `CHUNK_OVERLAP_TOKENS`, `CHUNK_MIN_CHARS` | Chunk budget, overlap and trailing-fragment merge (defaults `200`/`40`/`120`) |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Optional LangSmith tracing of ingestion and Ask AI |
 | `CELERY_TASK_SOFT_TIME_LIMIT`, `CELERY_TASK_TIME_LIMIT` | Per-task soft/hard limits in seconds (defaults `1500`/`1800`) |
+| `CELERY_WORKER_CONCURRENCY` | Worker child processes; keep at `1` because each loads the embedding model |
 | `VITE_API_BASE_URL` | Frontend API base (default `/api/v1`) |
 | `VITE_DEV_API_PROXY` | Dev-only Vite proxy target (default `http://localhost:8000`) |
 
@@ -311,15 +318,59 @@ and private keys.
 
 ## Deployment
 
-- `backend/docker/fastapi.Dockerfile` and `celery.Dockerfile` build the API and
-  worker.
-- `frontend/Dockerfile` + `frontend/nginx.conf` build and serve the SPA.
-- `backend/docker-compose.yml` provides PostgreSQL/pgvector, Redis and MinIO.
-- Bind the API to loopback and put a TLS reverse proxy (nginx, Caddy, Tailscale
-  Funnel or a cloud load balancer) in front of it. Keep the database, Redis, MinIO
-  and the API port private.
-- Set `FRONTEND_URL` to the public web origin so invitation links resolve.
+The repository ships a complete, self-hosted production stack. Everything runs on
+one host behind a Caddy reverse proxy that issues HTTPS certificates automatically.
+
+```text
+Internet ──HTTPS──► Caddy (auto Let's Encrypt, :80/:443)
+                      ├── app hostname     → web (nginx: SPA + /api proxy) → backend
+                      └── storage hostname → minio (presigned downloads)
+```
+
+1. **Provision a host** (a free Oracle Cloud "Always Free" ARM VM is plenty) and
+   point two hostnames at its public IP — the app and the storage origin. A free
+   `*.duckdns.org` subdomain works; no domain purchase is required.
+2. **Configure** the backend:
+
+   ```bash
+   cd backend
+   cp .env.production.example .env.production   # edit every value
+   ```
+
+   Set `SECRET_KEY` (`openssl rand -hex 32`), the database and MinIO passwords,
+   `APP_DOMAIN` / `STORAGE_DOMAIN`, and `MINIO_PUBLIC_ENDPOINT`
+   (`https://<storage-domain>`).
+3. **Launch** the stack:
+
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+   ```
+
+   Caddy fetches certificates on first boot. The API creates the schema and seeds
+   RBAC automatically, so there is no separate migration step.
+
+| Piece | Where it runs | Notes |
+| --- | --- | --- |
+| `caddy` | public `:80`/`:443` | automatic TLS for both hostnames |
+| `web` | internal | `frontend/Dockerfile` build, serves the SPA and proxies `/api/` |
+| `backend` | internal `:8000` | `Dockerfile` target `api`, one uvicorn worker |
+| `worker` | internal | `Dockerfile` target `worker`, `--concurrency=1` |
+| `db`, `redis`, `minio` | internal only | named volumes; nothing else is published |
+
+The image installs the CPU-only PyTorch stack and bakes `all-MiniLM-L6-v2` into the
+layer, so a cold start needs no Hugging Face access and no GPU.
+
+**Split deployment (optional).** The frontend can be hosted separately (for example
+on Vercel) by setting `VITE_API_BASE_URL` to the absolute API origin; the API's CORS
+allow-list (`FRONTEND_URL` + `BACKEND_CORS_ORIGINS`) permits it. `frontend/vercel.json`
+also rewrites `/api/*` to the production host so the browser stays same-origin.
+
+**Operational notes**
+
 - Every route is rate limited; login and registration are capped at 5/minute.
+- `MINIO_PUBLIC_ENDPOINT` is what makes presigned download URLs valid off-host: the
+  signature covers the `Host`, so it must match the public storage hostname.
+- Back up `postgres_data` (and `minio_data`) — the named volumes hold all state.
 
 ---
 
@@ -336,7 +387,8 @@ and private keys.
 
 ## Known limitations
 
-- Stored Alembic revisions are legacy; use `init_db.py` (or `create_all` on startup).
+- Stored Alembic revisions are legacy; the API's startup `create_all` (or `init_db.py`)
+  is the supported schema path.
 - Email delivery is not configured by default — invitations expose copy/mailto links
   until SMTP is wired up.
 - Archived document listing is reconstructed from audit events; there is no

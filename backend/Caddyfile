@@ -1,0 +1,23 @@
+# DocuFlow production reverse proxy.
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically for the two
+# hostnames below, so both must already resolve to this server's public IP
+# before the stack is started (see the DuckDNS steps in the README).
+#
+# The hostnames come from .env.production:
+#   APP_DOMAIN      e.g. docuflow.duckdns.org
+#   STORAGE_DOMAIN  e.g. minio-docuflow.duckdns.org
+
+{$APP_DOMAIN} {
+	encode gzip
+
+	# The SPA and its /api/ proxy are served by the bundled nginx image.
+	reverse_proxy web:80
+}
+
+{$STORAGE_DOMAIN} {
+	# MinIO. Presigned download URLs are signed for this exact hostname, so the
+	# Host header must be preserved through the proxy (Caddy does this by
+	# default) or every download fails with a signature mismatch.
+	reverse_proxy minio:9000
+}

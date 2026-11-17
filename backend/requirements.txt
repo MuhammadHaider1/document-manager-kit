@@ -1,3 +1,13 @@
+# ---------------------------------------------------------------------------
+# Core runtime dependencies (API, auth, RBAC, documents, audit, notifications).
+#
+# The optional RAG stack — sentence-transformers, torch and transformers — is
+# pinned in requirements-rag.txt and installed alongside this file by the
+# production image:
+#     pip install -r requirements.txt -r requirements-rag.txt
+# Keeping it out of this file is deliberate: a core install stays small and CI
+# stays fast, while the Dockerfile guarantees a deployed image always has it.
+# ---------------------------------------------------------------------------
 aioboto3==15.5.0
 aiobotocore==2.25.1
 aiofiles==25.1.0

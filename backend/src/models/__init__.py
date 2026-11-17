@@ -1,5 +1,9 @@
 # src/models/__init__.py
-from src.core.database import Base
+# ``Base`` must be the declarative base the model modules below actually use,
+# otherwise ``Base.metadata`` is empty and ``create_all`` silently creates
+# nothing. Importing it here also pulls every model module in, which registers
+# the tables on that same metadata.
+from src.models.base import Base
 from src.models.audit import AuditLog
 from src.models.auth import RefreshToken, User
 from src.models.chunks import DocumentChunk

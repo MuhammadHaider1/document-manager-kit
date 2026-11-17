@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_NAME: str = "docuflow-documents"
     MINIO_SECURE: bool = False
+    # Origin the *browser* uses to fetch presigned URLs, e.g.
+    # ``https://storage.example.com``. Server-side operations always use the
+    # internal ``MINIO_ENDPOINT``, but a presigned URL is signed for whichever
+    # host the browser will actually request, so the two are configured
+    # separately when the app sits behind a reverse proxy. Leave blank to sign
+    # against ``MINIO_ENDPOINT`` (correct for local development).
+    MINIO_PUBLIC_ENDPOINT: str = ""
 
     # Embeddings: when this directory exists the model is loaded from disk and
     # HuggingFace is never contacted. Otherwise the hub id is used instead.
@@ -54,6 +61,10 @@ class Settings(BaseSettings):
     # Celery guard rails so a huge PDF cannot pin a worker slot forever.
     CELERY_TASK_SOFT_TIME_LIMIT: int = 1500
     CELERY_TASK_TIME_LIMIT: int = 1800
+    # Every prefork child loads its own copy of the ~0.4 GB embedding model, so
+    # Celery's default (one child per CPU core) can exhaust RAM on a small host.
+    # One child keeps memory flat; raise this only with RAM headroom.
+    CELERY_WORKER_CONCURRENCY: int = 1
 
     # Gemini is the primary answer provider when a key is configured. The
     # stable Flash-Lite model offers a 1M-token input window and 65K output
@@ -101,8 +112,25 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5180"
     INVITATION_EXPIRE_DAYS: int = 7
 
+    # Extra browser origins allowed to call the API, comma-separated.
+    # FRONTEND_URL is always allowed, so a same-origin deployment needs nothing
+    # here. Set this only when the UI is served from a different domain (for
+    # example a Vercel preview URL or a separate web host).
+    BACKEND_CORS_ORIGINS: str = ""
+
     # 🟢 Yahan defaults update karein taake field required na rahe validation ke waqt
     DATABASE_URI: str = ""
+
+    def allowed_origins(self) -> list[str]:
+        """CORS allow-list: ``FRONTEND_URL`` plus any configured extras."""
+        origins = {self.FRONTEND_URL.strip().rstrip("/")}
+        origins.update(
+            origin.strip().rstrip("/")
+            for origin in self.BACKEND_CORS_ORIGINS.split(",")
+            if origin.strip()
+        )
+        origins.discard("")
+        return sorted(origins)
 
     @field_validator("DATABASE_URI", mode="before")
     @classmethod

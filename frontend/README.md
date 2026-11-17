@@ -288,15 +288,17 @@ docker run --rm -p 8080:80 docuflow-web
 `nginx.conf` serves the SPA with history fallback, immutable asset caching, and
 proxies `/api/` to the Compose service `backend:8000`. Point it at your API host
 by editing the `upstream` block, or build with an absolute `VITE_API_BASE_URL`
-(the API must then allow the web origin via CORS). `/healthz` is available for
-container health checks.
+(the API must then allow the web origin via CORS). `/healthz` reports the web
+container, and `/health` is proxied to the API so uptime monitoring has a single
+public URL.
 
 ### Vercel / static hosts
 
-`vercel.json` configures the Vite build, SPA rewrites (leaving `/api/*` alone)
-and security headers. Set `VITE_API_BASE_URL` in the project environment to your
-API URL, or add a rewrite from `/api/:path*` to the backend and keep the default
-relative base.
+`vercel.json` configures the Vite build, SPA rewrites, security headers and a
+`/api/:path*` rewrite to the production API host (edit the destination to match
+your deployment). Keep the default relative `VITE_API_BASE_URL` to use that
+rewrite, or set `VITE_API_BASE_URL` in the project environment to an absolute API
+URL instead (the API must then allow the web origin via CORS).
 
 Serve `dist/` from any static host with a catch-all rewrite to `index.html`.
 

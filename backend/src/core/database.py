@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
 
 from src.core.config import settings
 
@@ -25,9 +24,9 @@ SessionLocal = async_sessionmaker(
 )
 
 
-# Base Class For Models
-class Base(DeclarativeBase):
-    pass
+# The declarative base and all model classes live in ``src.models``; import
+# ``Base`` from there (``from src.models import Base``) so ``Base.metadata``
+# actually contains the tables.
 
 
 # Dependency to get DB Session

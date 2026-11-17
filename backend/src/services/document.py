@@ -328,7 +328,7 @@ class DocumentService:
             )
 
         try:
-            async with storage_manager.get_client() as s3:
+            async with storage_manager.get_presign_client() as s3:
                 download_url = await s3.generate_presigned_url(
                     ClientMethod="get_object",
                     Params={

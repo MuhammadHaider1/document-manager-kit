@@ -1,5 +1,4 @@
 import asyncio
-import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -7,22 +6,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# 🚨 SAARE MODEL MODULES KO IMPORT KAREIN (Taki SQLAlchemy Registry activate rahe)
-import src.models.auth
-import src.models.document
-import src.models.organization
-import src.models.rbac
-
-# Core settings aur Base models
+# Importing the models package registers every table on the shared metadata, so
+# Alembic autogenerate sees the full schema.
+import src.models  # noqa: F401
 from src.core.config import settings
-from src.core.database import Base
-
-# Explicit class imports (Double guarantee for metadata linkage)
-from src.models.auth import RefreshToken, User
-from src.models.comment import Comment
-from src.models.document import Document, DocumentVersion, Folder
-from src.models.organization import Membership, Organization
-from src.models.rbac import Permission, Role, RolePermission
+from src.models import Base
 
 config = context.config
 
