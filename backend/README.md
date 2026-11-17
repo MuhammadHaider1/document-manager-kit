@@ -9,8 +9,9 @@ register and receive clearly labelled general knowledge when no passage matches.
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Upload a document → a Celery worker extracts the text → chunks it → generates 384-dimensional
-embeddings → stores them in **pgvector**. `POST /chat/` routes registry questions to
+Upload a document → a Celery worker repairs the PDF's font maps, extracts the text page by
+page → chunks it on natural boundaries → generates 384-dimensional embeddings in batches →
+stores them in **pgvector** with page citations. `POST /chat/` routes registry questions to
 PostgreSQL and uses relevance-gated cosine search plus Gemini/OpenRouter for other questions.
 
 > **Solo project** — architecture, backend, RBAC, the RAG pipeline, deployment and
@@ -45,6 +46,7 @@ PostgreSQL and uses relevance-gated cosine search plus Gemini/OpenRouter for oth
 | **Hybrid chat** | Exact document registry, bounded follow-up history and labelled general fallback |
 | **RBAC** | 8 roles, 11 permissions, 56 role→permission links, enforced by a reusable dependency |
 | **Async document processing** | Celery + Redis; PDF/DOCX/TXT extraction never blocks a request |
+| **Structure-aware ingestion** | Token-budgeted, boundary-aware chunks with overlap, per-page extraction and page-number citations |
 | **Versioned storage** | `Document` + `DocumentVersion` lineage, objects in MinIO (S3-compatible) |
 | **Hierarchical folders** | Nested parent/child tree, cascade-safe deletes |
 | **Audit log** | Async trail of actor, action, entity, IP and JSONB detail |
@@ -118,19 +120,51 @@ stmt = (
 PDF / DOCX / TXT uploaded
    └─► process_document_task              (Celery, max_retries=3, 5s backoff)
           ├─ minio.stat_object()          verify the object really exists
-          ├─ extract_text()               pypdf / python-docx / plain decode
-          ├─ chunk_text(500, overlap 50)   sliding window
-          ├─ SentenceTransformer           all-MiniLM-L6-v2 → 384-d vectors
-          └─ INSERT documentchunk         embedding column (pgvector)
+          ├─ repair_pdf()                 fix broken ligature /ToUnicode maps (PDF)
+          ├─ extract_text()               pypdfium2 per page, pypdf fallback, python-docx, plain decode
+          ├─ chunk_text_with_spans()      token-budgeted, boundary-aware, 40-token overlap
+          ├─ get_embeddings_batch()       all-MiniLM-L6-v2 → 384-d, 64 chunks per call
+          └─ INSERT documentchunk         embedding + chunk_index + page_number (pgvector)
 ```
 
-Supported extractors are PDF (`pypdf`), DOCX (`python-docx`, paragraphs and tables) and
-UTF-8/UTF-16 text formats (`.txt`, `.md`, `.csv`, `.json`, `.log`). Images and legacy `.doc`
-files have no configured extractor, so they are marked `failed` with an explicit reason
-instead of being reported as indexed.
+Supported extractors are PDF (`pypdfium2` per page, with `pypdf` as a fallback), DOCX
+(`python-docx`, paragraphs and tables) and UTF-8/UTF-16 text formats (`.txt`, `.md`, `.csv`,
+`.json`, `.log`). Extracting PDFs a page at a time lets every chunk carry a `page_number` for
+citations, and each page is sanitised (NUL and other control characters stripped) before it
+reaches Postgres. Images and legacy `.doc` files have no configured extractor, so they are
+marked `failed` with an explicit reason instead of being reported as indexed.
 
 Retries are bounded: on the final attempt the document is marked `failed` instead of
 retrying forever, and the error is re-raised so it is not silently swallowed.
+
+#### Repairing broken ligatures
+
+Some PDF producers subset CID fonts (`/Encoding /Identity-H`) but leave the ligature glyphs
+(`fi`/`fl`/`ff`/`ffi`/`ffl`) mapped to `U+0000` in the font's `/ToUnicode` CMap. Extractors
+then emit a NUL or drop the glyphs entirely — `flames` becomes `ames`, `affluence` loses its
+`ff` — and because Postgres rejects NUL bytes, a single bad page can fail the whole ingestion.
+
+`src/utils/pdf_repair.py` rebuilds the missing entries before extraction. It recovers each
+ligature from the embedded font program:
+
+1. **Composite components** — follow the glyph's components until one is mapped, via the font
+   `cmap`, to a ligature presentation form (`U+FB00`–`U+FB06`). Resolves `ffi`/`ffl`/`ff`.
+2. **Advance width** — match the CID's width against the font's ligature forms.
+3. **Document-wide map** — sibling subset fonts share a glyph-id space, so a ligature resolved
+   in one font fills the same CID in the others.
+
+Only the `/ToUnicode` stream is touched, and the rewritten document is used solely for
+extraction: the stored object is never modified. If anything fails, the original bytes are
+returned unchanged. After the repair, PDFium's line-end hyphen marker (`U+FFFE`) is mapped
+back to `-`, since the repair removes every other source of that character.
+
+#### Re-indexing and tracing
+
+`scripts/reindex_documents.py` re-chunks and re-embeds documents that already have stored
+text, so a chunker or embedding change does not require re-uploading every file. Optional
+LangSmith tracing (`src/core/tracing.py`) records the ingestion task and the Ask-AI steps; it
+is a no-op unless both `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` are set, and it is
+forced off in the test suite.
 
 ### Query — `POST /api/v1/query`
 
@@ -254,8 +288,8 @@ Tokens are 256-bit URL-safe secrets generated with `secrets.token_urlsafe(32)`.
 
 ## Production debugging
 
-Four bugs found and fixed while deploying this to Azure. Each is a commit, and each has a
-regression test.
+Several bugs found and fixed while deploying and hardening this. Each is a commit, and each
+has a regression test.
 
 **1. `pg_hba.conf` trusted every local connection.** The password was correct and still
 irrelevant — Postgres was configured with `trust` for loopback, so *any* password connected
@@ -289,6 +323,17 @@ parameter* and the endpoint could never succeed. The test for it had been pointe
 exercised nothing. Both are fixed: the parameter is named correctly, the tests call real
 routes, and a tenant-isolation test now proves another tenant's document returns 404.
 
+**6. A font subset dropped every ligature.** The sample book's PDF subset its CID fonts but
+left the ligature glyphs (`fi`/`fl`/`ff`/`ffi`/`ffl`) mapped to `U+0000` in the font's
+`/ToUnicode` CMap. `pypdf` emitted NUL bytes — which Postgres rejects outright, failing the
+whole ingestion — and `pypdfium2` silently dropped the glyphs, so `flames` indexed as `ames`
+and `affluence` as `auence`. The character information was still inside the embedded font
+program, so `src/utils/pdf_repair.py` reconstructs it (composite components → advance width →
+document-wide CID map) and rewrites only the broken `/ToUnicode` entries. Regression tests
+build a synthetic TrueType program and a broken Type0 font, and the fix was verified end to
+end: a 2.4 MB, 846-page book went from thousands of dropped glyphs to zero artefacts across
+1,468 chunks.
+
 ---
 
 ## Tech stack
@@ -302,7 +347,9 @@ routes, and a tenant-isolation test now proves another tenant's document returns
 | Auth | JWT (PyJWT), Argon2 via `pwdlib`, FastAPI dependencies |
 | Vector search | pgvector cosine distance, `sentence-transformers` MiniLM (384-d) |
 | LLM | Gemini 3.5 Flash-Lite primary + OpenRouter high-context fallback pool over `httpx` |
-| Background work | Celery + Redis, `pypdf` and `python-docx` for extraction |
+| Background work | Celery + Redis, `pypdfium2`/`pypdf` and `python-docx` for extraction |
+| Chunking | Token-budgeted, boundary-aware Python chunker with overlap (no model needed) |
+| Tracing | LangSmith (optional; no-op when disabled) |
 | Object storage | MinIO (S3-compatible) via `minio` / `aioboto3` |
 | Rate limiting | SlowAPI |
 | Tests | pytest, pytest-asyncio, httpx |
@@ -321,18 +368,18 @@ backend/
 ├── requirements.txt              # runtime deps
 ├── requirements-dev.txt          # test + lint tooling
 ├── requirements-rag.txt          # optional ~2 GB PyTorch stack
-├── scripts/                      # manual dev utilities (need a live DB)
+├── scripts/                      # reindex_documents.py + manual dev utilities (need a live DB)
 ├── src/
 │   ├── main.py                   # app, lifespan, routers, limiter
-│   ├── core/                     # config, database, security, seeding, limiter
+│   ├── core/                     # config, database, security, seeding, limiter, tracing
 │   ├── api/v1/                   # 11 routers incl. rag.py and members.py
 │   ├── models/                   # SQLAlchemy models (chunks.py holds pgvector)
 │   ├── repositories/             # data access, one module per entity
 │   ├── schemas/                  # Pydantic request/response models
 │   ├── services/                 # business logic, RAG, embedding, storage
 │   ├── tasks/                    # Celery app + document pipeline
-│   └── utils/chunking.py         # sliding-window splitter
-└── tests/                        # pytest suite, 190 tests (statement-aware fake DB)
+│   └── utils/                    # chunking.py (structure-aware) + pdf_repair.py (ligatures)
+└── tests/                        # pytest suite, 207 tests (statement-aware fake DB)
 ```
 
 ---
@@ -442,7 +489,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 ## Testing & CI
 
 ```bash
-pytest              # 190 tests
+pytest              # 207 tests
 ruff check src/ tests/ scripts/
 ruff format --check src/ tests/ scripts/
 ```
@@ -494,7 +541,9 @@ rotated, and the check is there to stop it happening again.
 - [ ] Replace the hard-coded Celery broker URL with a setting
 - [ ] Real integration tests against a live Postgres + pgvector instance
 - [x] HTTPS deployment support (Tailscale Serve / Let's Encrypt)
-- [ ] OCR for scanned PDFs and images (`pypdf` and `python-docx` only read text layers)
+- [x] Structure-aware chunking with per-page citations and in-memory PDF ligature repair
+- [x] Optional LangSmith tracing for ingestion and Ask AI
+- [ ] OCR for scanned PDFs and images (`pypdfium2`/`pypdf` and `python-docx` only read text layers)
 - [ ] Presigned upload/download URLs that work outside the host
 - [ ] Hybrid retrieval (BM25 + vector) and a re-ranker
 - [ ] Container images for the API and worker

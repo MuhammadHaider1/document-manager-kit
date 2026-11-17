@@ -25,7 +25,11 @@ clearly labelled general knowledge.
 - **RBAC with 8 seeded roles and 11 permissions** — deny-by-default API checks and a
   permission-aware UI, including a separate Member role for invitees.
 - **Document pipeline** — PDF, DOCX, TXT and image uploads are stored in MinIO,
-  extracted, chunked and embedded into PostgreSQL with pgvector.
+  extracted page by page, chunked on natural boundaries and embedded into
+  PostgreSQL with pgvector. Chunks carry their source page for citations.
+- **Robust PDF extraction** — broken font maps that silently drop ligatures
+  (`flames` → `ames`) are repaired in memory before extraction; the stored file is
+  never modified.
 - **Hybrid Ask AI** — registry questions are answered from the database, document
   questions use relevance-gated organization chunks with source titles, and unmatched
   questions receive a clearly labelled general-knowledge answer.
@@ -41,8 +45,9 @@ clearly labelled general knowledge.
 - **Invitations and membership** — invite links are bound to the inviting
   organization and always join as `Member`; no cross-tenant escalation.
 - **Operational visibility** — audit log, notifications, health endpoint, rate
-  limiting and structured document status transitions (`pending → processing →
-  completed | failed`).
+  limiting, structured document status transitions (`pending → processing →
+  completed | failed`) and optional LangSmith tracing for every ingestion and
+  Ask-AI step.
 
 ---
 
@@ -76,9 +81,9 @@ docuflow/
 │   ├── docker/                 # API and worker Dockerfiles
 │   ├── docker-compose.yml      # PostgreSQL/pgvector, Redis, MinIO
 │   ├── migrations/             # legacy Alembic revisions (see note below)
-│   ├── scripts/                # manual RAG utilities
+│   ├── scripts/                # re-index and manual RAG utilities
 │   ├── src/                    # API, models, repositories, services, tasks
-│   ├── tests/                  # pytest suite (190 tests, mocked DB session)
+│   ├── tests/                  # pytest suite (207 tests, mocked DB session)
 │   └── README.md               # backend deep dive
 ├── frontend/                   # React 18 + Vite + TypeScript SPA
 │   ├── src/                    # features, components, API client, stores
@@ -100,6 +105,9 @@ docuflow/
 | Async jobs | Celery + Redis |
 | Object storage | MinIO (S3 compatible) |
 | RAG | sentence-transformers (`all-MiniLM-L6-v2`), OpenRouter |
+| Extraction | pypdfium2 (per page, primary), pypdf (fallback), python-docx |
+| Chunking | Token-budgeted, boundary-aware chunker with overlap (pure Python) |
+| Tracing | LangSmith (optional; no-op when disabled) |
 | Auth | JWT access/refresh rotation, Argon2 password hashing |
 | Frontend | React 18, Vite, TypeScript strict, Tailwind CSS |
 | UI | shadcn-style Radix primitives, lucide-react, Fraunces + Inter |
@@ -208,6 +216,10 @@ Copy the example files and fill in your own values. **Never commit real secrets.
 | `RAG_HISTORY_TURNS` | Conversation turns kept for follow-ups (default `8`) |
 | `FRONTEND_URL` | Builds invitation links |
 | `EMBEDDING_MODEL_PATH`, `EMBEDDING_MODEL_ID` | Local or Hugging Face embedding model |
+| `EMBEDDING_BATCH_SIZE` | Chunks embedded per call (default `64`) |
+| `CHUNK_MAX_TOKENS`, `CHUNK_OVERLAP_TOKENS`, `CHUNK_MIN_CHARS` | Chunk budget, overlap and trailing-fragment merge (defaults `200`/`40`/`120`) |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Optional LangSmith tracing of ingestion and Ask AI |
+| `CELERY_TASK_SOFT_TIME_LIMIT`, `CELERY_TASK_TIME_LIMIT` | Per-task soft/hard limits in seconds (defaults `1500`/`1800`) |
 | `VITE_API_BASE_URL` | Frontend API base (default `/api/v1`) |
 | `VITE_DEV_API_PROXY` | Dev-only Vite proxy target (default `http://localhost:8000`) |
 
@@ -223,6 +235,8 @@ See [`backend/.env.example`](./backend/.env.example) and
    from the database instead of the vector index.
 2. Content questions are embedded with `all-MiniLM-L6-v2` (384 dimensions), and
    pgvector returns the nearest chunks **scoped to the active organization**.
+   Documents are chunked on natural boundaries with overlap, and each chunk keeps
+   its source page number for citations.
 3. Retrieval keeps a wider candidate set, caps chunks per document and removes
    duplicates from repeated uploads before building the prompt. Bare or prefixed
    document titles are resolved directly before semantic retrieval.
@@ -236,6 +250,9 @@ See [`backend/.env.example`](./backend/.env.example) and
    Reasoning is enabled only for that case; other document answers remain grounded.
 7. Legacy `POST /api/v1/query` and `POST /api/v1/query-stream` endpoints remain
    available; the SPA uses `/chat/` for typed responses and registry routing.
+
+After changing the chunker or embedding settings, re-index existing documents with
+`python -m scripts.reindex_documents` from `backend/` instead of re-uploading them.
 
 Provider keys are read from the backend environment and are never logged,
 returned to the browser or committed.
@@ -325,7 +342,7 @@ and private keys.
 - Archived document listing is reconstructed from audit events; there is no
   `include_archived` filter yet.
 - OCR is not implemented for scanned PDFs and images; extraction relies on text
-  layers (`pypdf`, `python-docx`).
+  layers (`pypdfium2`/`pypdf`, `python-docx`).
 - The default OpenRouter model is a free tier and can be rate-limited upstream.
 
 ---
